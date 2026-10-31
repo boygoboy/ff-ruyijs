@@ -393,7 +393,9 @@ class CoreClient:
                     pass
                 _reraise(error)
             return _Lane(tls, connection, version)
-        if tls.alpn == "http/1.1":
+        # Servers predating ALPN still speak HTTP/1.1 over the verified TLS
+        # connection. An empty ALPN does not require the xpcshell fallback.
+        if tls.alpn in ("http/1.1", ""):
             return _Lane(tls, None, version)
         try:
             tls.close()
