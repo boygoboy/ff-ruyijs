@@ -198,12 +198,17 @@ class Connection:
         if self._webtransport is not None:
             self._webtransport.check_operation(call.exchange, operation)
         if operation == "webtransport":
+            closing = call.arguments.get("action") == "close"
+            if closing:
+                # Neqo removes the session during close. Read its final live
+                # snapshot while the stream ID still belongs to that session.
+                snapshot = self._call("webtransport", action="info", session=call.arguments["session"])
             call.result = self._call("webtransport", **call.arguments)
             if call.arguments.get("action") == "stream":
                 self._webtransport.add_endpoint(self, call.result["stream"])
-            if call.arguments.get("action") == "close":
-                snapshot = self._call("webtransport", action="info", session=call.arguments["session"])
+            if closing:
                 self._webtransport.info.update((key, value) for key, value in snapshot.items() if value is not None)
+                self._webtransport.info.update(call.result)
                 self._call("pump")
             return True
         exchange = call.exchange
