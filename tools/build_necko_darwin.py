@@ -1,7 +1,8 @@
 """Spike: load the Windows Necko Python adapter on Darwin.
 
 Products stay under build/necko-darwin/. This does not replace
-vendor/necko-derived/python or dist/js, and it does not build HTTP/3.
+vendor/necko-derived/python or dist/js. HTTP/3 is the Linux Neqo bridge
+built against the existing obj-necko NSS, not native/necko_quic.
 """
 import argparse
 import hashlib
@@ -47,6 +48,16 @@ PATCHES = {
         ('                profile=PROFILES[self.firefox]["quic"],\n',
          '                profile=PROFILES[self.firefox]["quic"],\n'
          '                firefox=self.firefox,\n'),
+    ],
+    "necko/_connect.py": [
+        ("import threading\nimport time\n", "import ssl\nimport threading\nimport time\n"),
+        ("            if winner:\n                returned = True\n                return winner[0]\n",
+         "            if winner:\n"
+         "                primary_error = completed.get(0)\n"
+         "                if isinstance(primary_error, ssl.SSLError):\n"
+         "                    raise primary_error\n"
+         "                returned = True\n"
+         "                return winner[0]\n"),
     ],
 }
 
@@ -167,6 +178,181 @@ def compile_core(root, build, site, nss_obj):
     return installed
 
 
+def _replace_once(text, old, new, label):
+    if text.count(old) != 1:
+        raise ValueError(f"QUIC embedding anchor changed: {label}")
+    return text.replace(old, new, 1)
+
+
+def _detach(path):
+    """Replace an overlay symlink with a private copy before patching it."""
+    if path.is_symlink():
+        data = path.resolve().read_bytes()
+        path.unlink()
+        path.write_bytes(data)
+    return path
+
+
+def _patched_nss(root, firefox):
+    dest = root / "build/necko-darwin/quic-nss"
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(firefox / "third_party/rust/nss-rs", dest,
+                    ignore=shutil.ignore_patterns("target"))
+    agent = dest / "src/agent.rs"
+    agent.write_text(_replace_once(
+        agent.read_text(encoding="utf-8"),
+        "impl SecretAgent {",
+        "impl SecretAgent {\n"
+        "    pub fn standalone_fd(&mut self) -> *mut std::ffi::c_void { self.fd.cast() }\n",
+        "SecretAgent",
+    ), encoding="utf-8")
+    return dest
+
+
+def _patch_transport(overlay):
+    connection = _detach(overlay / "neqo-transport/src/connection/mod.rs")
+    text = connection.read_text(encoding="utf-8")
+    text = _replace_once(
+        text,
+        "    pub fn set_certificate_compression<",
+        "    pub fn standalone_tls_fd(&mut self) -> *mut std::ffi::c_void {\n"
+        "        self.crypto.tls_mut().standalone_fd()\n    }\n\n"
+        "    pub fn set_certificate_compression<",
+        "standalone_tls_fd",
+    )
+    text = _replace_once(
+        text,
+        "    pub fn standalone_tls_fd(",
+        "    pub fn standalone_tp_style(&mut self, style: u8) {\n"
+        "        self.tps.borrow_mut().local_mut().standalone_wire_style = style;\n    }\n\n"
+        "    pub fn standalone_tls_fd(",
+        "standalone_tp_style",
+    )
+    connection.write_text(text, encoding="utf-8")
+    tparams = _detach(overlay / "neqo-transport/src/tparams.rs")
+    text = tparams.read_text(encoding="utf-8")
+    text = _replace_once(
+        text,
+        "pub struct TransportParameters {",
+        "pub struct TransportParameters {\n    pub standalone_wire_style: u8,",
+        "TransportParameters",
+    )
+    old = """        for (i, v) in self.params.iter().filter(|(i, v)| f(*i, v.as_ref())) {
+            if let Some(tp) = v {
+                tp.encode(enc, i);
+            }
+        }"""
+    new = """        let mut entries: Vec<_> = self.params.iter()
+            .filter(|(i,v)| f(*i,v.as_ref()) && v.is_some()).collect();
+        if self.standalone_wire_style != 0 {
+            // NSS entropy; Fisher-Yates with rejection avoids modulo bias.
+            for end in (1..entries.len()).rev() {
+                let bound = (end + 1) as u64;
+                let limit = u64::MAX - u64::MAX % bound;
+                let index = loop {
+                    let value = u64::from_ne_bytes(random::<8>());
+                    if value < limit { break (value % bound) as usize; }
+                };
+                entries.swap(end,index);
+            }
+        }
+        for (i,v) in entries {
+            if i == TransportParameterId::VersionInformation {
+                if self.standalone_wire_style == 3 { continue; }
+                if self.standalone_wire_style == 2 {
+                    let mut entry = Encoder::default();
+                    v.as_ref().unwrap().encode(&mut entry,i);
+                    let mut decoded = Decoder::new(entry.as_ref());
+                    decoded.decode_varint();
+                    enc.encode_varint(0xff73db_u64);
+                    enc.encode(decoded.decode_remainder());
+                    continue;
+                }
+            }
+            v.as_ref().unwrap().encode(enc,i);
+        }"""
+    tparams.write_text(_replace_once(text, old, new, "transport parameters"), encoding="utf-8")
+
+
+def compile_quic(root, site, nss_obj):
+    """Build the Linux Neqo bridge as libnecko_quic.dylib next to the spike core."""
+    import build_necko_quic
+
+    nss_obj = Path(nss_obj).resolve()
+    firefox = build_necko_quic.firefox_source(root).resolve()
+    if not (nss_obj / "dist/bin/libnss3.dylib").is_file():
+        raise FileNotFoundError(nss_obj / "dist/bin/libnss3.dylib")
+    nss_crate = _patched_nss(root, firefox)
+    config = build_necko_quic._vendor_config(nss_obj)
+    nss_dir = build_necko_quic._link_tree(nss_obj)
+    overlay = build_necko_quic._overlay(firefox / "third_party/rust", nss_crate)
+    _patch_transport(overlay)
+    workspace = root / "build/necko-darwin/quic-ws"
+    if workspace.exists():
+        shutil.rmtree(workspace)
+    workspace.mkdir(parents=True)
+    source = (root / "native/necko_posix/quic/lib.rs").resolve()
+    package_dir = workspace / "necko"
+    package_dir.mkdir()
+    (package_dir / "Cargo.toml").write_text(
+        "[package]\nname=\"necko_quic\"\nversion=\"0.1.0\"\nedition=\"2024\"\npublish=false\n"
+        "[lib]\ncrate-type=[\"cdylib\"]\npath=" + json.dumps(str(source)) + "\n"
+        "[dependencies]\nserde_json=\"1\"\nbase64=\"0.22\"\nlibc=\"0.2\"\n"
+        f'neqo-http3={{path="{ (overlay / "neqo-http3").as_posix() }"}}\n'
+        f'neqo-transport={{path="{ (overlay / "neqo-transport").as_posix() }"}}\n'
+        f'neqo-common={{path="{ (overlay / "neqo-common").as_posix() }"}}\n'
+        f'nss={{package="nss-rs",path="{ nss_crate.as_posix() }"}}\n',
+        encoding="utf-8",
+    )
+    (workspace / "Cargo.toml").write_text(
+        "[workspace]\nresolver=\"2\"\nmembers=[\"necko\"]\n\n" + build_necko_quic._patches(root),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CARGO_NET_OFFLINE"] = "true"
+    env["CARGO_TARGET_DIR"] = str(root / "build/necko-darwin/quic-target")
+    env["NSS_DIR"] = str(nss_dir)
+    env["NSS_PREBUILT"] = "1"
+    libclang = build_necko_quic._libclang()
+    if libclang:
+        env["LIBCLANG_PATH"] = libclang
+    try:
+        env["SDKROOT"] = subprocess.check_output(["xcrun", "--show-sdk-path"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    lib_dir = nss_dir.parent / "dist/Release/lib"
+    env["RUSTFLAGS"] = (
+        f"-L native={lib_dir} "
+        "-C link-arg=-Wl,-rpath,@loader_path "
+        "-C link-arg=-Wl,-install_name,@rpath/libnecko_quic.dylib"
+    )
+    log = root / "build/necko-darwin/quic-link.log"
+    command = [os.environ.get("CARGO", "cargo"), "build", "--offline", "--release",
+               "--config", str(config), "--manifest-path", str(workspace / "Cargo.toml"),
+               "-p", "necko_quic"]
+    result = subprocess.run(command, cwd=workspace, env=env, text=True, capture_output=True)
+    log.write_text(result.stdout + result.stderr, encoding="utf-8")
+    if result.returncode != 0:
+        tail = "\n".join((result.stdout + result.stderr).splitlines()[-40:])
+        raise RuntimeError(f"QUIC link failed, see {log}\n{tail}")
+    built = Path(env["CARGO_TARGET_DIR"]) / "release/libnecko_quic.dylib"
+    if not built.is_file():
+        raise RuntimeError("libnecko_quic.dylib was not produced")
+    target = Path(site) / "necko"
+    target.mkdir(parents=True, exist_ok=True)
+    installed = target / "libnecko_quic.dylib"
+    shutil.copy2(built, installed)
+    bin_dir = nss_obj / "dist/bin"
+    folded = bin_dir / "libnss3.dylib"
+    for name in ("libssl3.dylib", "libnssutil3.dylib", "libnspr4.dylib", "libplc4.dylib", "libplds4.dylib"):
+        link = target / name
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(folded.resolve())
+    return installed
+
+
 def probe_imports(python, report):
     code = r"""
 import traceback
@@ -190,12 +376,20 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--nss-obj", type=Path, required=True)
     parser.add_argument("--python", default="python3.12")
+    parser.add_argument("--quic-only", action="store_true")
     args = parser.parse_args()
     if sys.platform != "darwin":
         parser.error("This spike runs on Darwin")
     root = Path(__file__).resolve().parents[1]
     build = root / "build/necko-darwin"
     build.mkdir(parents=True, exist_ok=True)
+    if args.quic_only:
+        python = build / "python/bin/python3"
+        site = Path(subprocess.check_output(
+            [str(python), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+            text=True).strip())
+        print("quic", compile_quic(root, site, args.nss_obj))
+        return
     runtime = build / "python"
     python = runtime / "bin/python3"
     if not (runtime / "bin/pip").exists():
@@ -214,6 +408,10 @@ def main():
         print("dylib", installed)
     except Exception as error:
         print("COMPILE_FAILED", error)
+    try:
+        print("quic", compile_quic(root, site, args.nss_obj))
+    except Exception as error:
+        print("QUIC_FAILED", error)
     code = probe_imports(python, build / "import-report.txt")
     print("import_ec", code)
     print((build / "import-report.txt").read_text(encoding="utf-8"))

@@ -8,7 +8,9 @@ Products stay in gitignored `build/necko-darwin/`. `vendor/necko-derived/python`
 
 `tools/build_necko_darwin.py` downloads the `runtime.json` 0.3.0 Windows archive, checks its size and SHA-256, and extracts the text files of `necko` and `ruyijs_necko` into a Python 3.14 virtualenv. The four Linux patch anchors are applied with `libnecko_core.dylib` instead of `libnecko_core.so`. `ruyijs_necko/oneshot.py` is `src/resource_network/necko_oneshot.py`. Python 3.12 cannot import this adapter: `ruyijs_necko/codec.py` imports `compression.zstd`, which the 3.14 standard library provides. The extracted `_tls_profiles.py` is the same 4883 bytes as `native/necko_tls/necko_win/_tls_profiles.py`.
 
-The core library is `native/necko_posix/src` linked against the existing `../firefox-159/obj-necko` NSS. No NSS rebuild was started. Darwin has no `SOCK_NONBLOCK` or `SOCK_CLOEXEC`, so the socket opens with `fcntl` and `SO_NOSIGPIPE`. `SSL_DataPending` is a local symbol in the folded `libnss3.dylib`, so `necko_tls_pending` reports whether `PR_Recv` can peek one byte. The HTTP/2 pump only tests that sign. HTTP/3 and the Neqo bridge were not built.
+The core library is `native/necko_posix/src` linked against the existing `../firefox-159/obj-necko` NSS. No NSS rebuild was started. Darwin has no `SOCK_NONBLOCK` or `SOCK_CLOEXEC`, so the socket opens with `fcntl` and `SO_NOSIGPIPE`. `SSL_DataPending` is a local symbol in the folded `libnss3.dylib`, so `necko_tls_pending` reports whether `PR_Recv` can peek one byte. The HTTP/2 pump only tests that sign.
+
+HTTP/3 is `native/necko_posix/quic`, the same Neqo 0.32.0 bridge Linux builds. `tools/build_necko_darwin.py --quic-only` copies `nss-rs` and the Neqo transport sources under `build/necko-darwin/`, adds the `standalone_tls_fd` and transport-parameter hooks there, and links `libnecko_quic.dylib` with the existing obj-necko NSS, `@loader_path`, and `@rpath/libnecko_quic.dylib`. The donor tree and `dist/necko_tls` are not modified. `necko_quic_version` returns the integer 32. A certificate error on the HTTP/3 attempt fails that request; the TCP backup from the adapter's connect race is not returned in its place.
 
 The TLS option set follows the recovered `necko_core.dll` path in `native/necko_tls/necko_tls.c`. NSS defaults already leave OCSP stapling, delegated credentials, post-handshake auth, and the TLS 1.3 compatibility session id off. Enabling them added ClientHello extensions the captured Firefox hellos do not carry.
 
@@ -21,21 +23,27 @@ The TLS option set follows the recovered `necko_core.dll` path in `native/necko_
 | 100 | 17 | 6 | 2 (32, 65) | 517 | no | no | 0 |
 | 159 | 15 | 5 | 3 (1216, 32, 65) | 1832 | yes | yes | 3 |
 
-The extension list and those lengths match `dist/necko_tls/libnecko_core.dylib` for both profiles. Version 159's cipher order matches too. Version 100's cipher order follows the profile table (`0xc00a`, `0xc009`, `0xc013`, `0xc014`). The existing library's preference loop emits `0xc009`, `0xc013`, `0xc00a`, `0xc014` for that profile.
+The extension list and those lengths match `dist/necko_tls/libnecko_core.dylib` for both profiles. Version 159's cipher order matches too. Version 100's cipher order follows the profile table (`0xc00a`, `0xc009`, `0xc013`, `0xc014`). The existing library's preference loop emits `0xc009`, `0xc013`, `0xc00a`, `0xc014` for that profile. The same probe against the spike library also matched the profile table for 119, 132, 135, 151, 154, and 156: cipher, group, and key-share counts were 17/6/2, 17/7/3, 17/7/3, 16/7/3, 15/7/3, and 15/5/3.
 
-Through the existing shell, with xpcshell hidden:
+Through the existing shell, with the donor xpcshell path either missing or set to the real binary:
 
-- `navigate('https://example.com/')` produced `document.title` `Example Domain`. A direct adapter GET returned status 200 and HTTP/2 (`raw.version` 20).
-- An HTTPS request through a local proxy sent `CONNECT example.com:443 HTTP/1.1` and loaded the same title. Two GETs in one adapter session used that one tunnel.
+- `navigate('https://example.com/')` produced `document.title` `Example Domain` and `nextHopProtocol` `h2`. A direct adapter GET returned status 200 and HTTP/2 (`raw.version` 20).
+- A local server that negotiates only `http/1.1` produced `nextHopProtocol` `http/1.1`.
+- An HTTPS request through a local proxy sent `CONNECT example.com:443 HTTP/1.1` and loaded the same title. With `http://user:secret@127.0.0.1:<port>` the proxy also received `Proxy-Authorization: Basic dXNlcjpzZWNyZXQ=`. One CONNECT carried the page, and `nextHopProtocol` stayed `h2`. No new `xpcshell` process appeared.
 - An HTTP request through the same proxy sent `GET http://example.com/ HTTP/1.1` and the proxy's response became the document.
-- A local HTTP document loaded directly. A local 302 from `/go` to `/land` ended on `Landed`.
+- A local HTTP document loaded directly. `open_response` returned status 302 for a redirect. The page then followed it: `location.href` ended on `/land` and the title was `Landed`.
 - `https://self-signed.badssl.com/` failed certificate validation.
 - A proxy URL with a path was refused before the proxy saw a connection, and the document title stayed empty.
+- A new connection's navigation timing was non-zero: `domainLookupStart` 90, `connectStart` 121, `secureConnectionStart` 329.
+
+HTTP/3 used a local `neqo-server` and a TCP server that advertised it with `Alt-Svc`. In one adapter session the first response was status 200, version 11, and 64 bytes. The second response was status 200, version 30, and the same 64 bytes. The page shell in one `Context` reported `nextHopProtocol` `http/1.1`, then `h3`. An alternate endpoint whose certificate failed validation made the second request raise `SSLError`; the status was not 200.
+
+WebTransport used the already running echo at `127.0.0.1:9443`. `python -m ruyijs_necko.oneshot --webtransport` returned a begin event of kind 0. With the leaf certificate's SHA-256, the session sent datagram `ping` and received `ping`. With PKI and no hash, verification failed because that certificate has no subjectAltName.
 
 Loading the Firefox roots prints a `CryptographyDeprecationWarning` for one certificate serial that is not positive. The page still verified.
 
 ## Still open
 
-- HTTP/3 is not built, so Alt-Svc and the Neqo bridge are uncovered.
-- `necko_tls_pending` can say that plaintext is present. It cannot return the buffered byte count while `SSL_DataPending` stays a local symbol.
+- `necko_tls_pending` can say that plaintext is present. It cannot return the buffered byte count while `SSL_DataPending` stays a local symbol. The recovered DLL returns the same 0-or-1 result.
+- Firefox 100's cipher order follows the Windows profile table, not the older macOS preference loop.
 - This note is the trial record. It does not change `docs/macos.md` or `runtime.json`.
