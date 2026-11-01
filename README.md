@@ -12,7 +12,7 @@ made for web scraping, JS reverse engineering, data collection, and getting past
 
 <sub>Sponsored by</sub>
 
-<a href="https://www.fastaitoken.com"><img src="assets/sponsor-fastaitoken.png" height="42" alt="FastAIToken"></a>
+<a href="https://www.fastaitoken.com"><img src="assets/sponsor-fastaitoken.png" height="42" alt="FastAIToken"></a>&nbsp;&nbsp;&nbsp;<a href="https://www.fastaitoken.com" title="Claude"><img src="assets/models/claude.svg" width="42" height="42" alt="Claude"></a>&nbsp;&nbsp;<a href="https://www.fastaitoken.com" title="GPT"><img src="assets/models/gpt.svg" width="42" height="42" alt="GPT"></a>&nbsp;&nbsp;<a href="https://www.fastaitoken.com" title="Grok"><img src="assets/models/grok.svg" width="42" height="42" alt="Grok"></a>&nbsp;&nbsp;<a href="https://www.fastaitoken.com" title="DeepSeek"><img src="assets/models/deepseek.svg" width="42" height="42" alt="DeepSeek"></a>&nbsp;&nbsp;<a href="https://www.fastaitoken.com" title="GLM"><img src="assets/models/glm.svg" width="42" height="42" alt="GLM"></a>
 
 <sub>Contributors</sub>
 
