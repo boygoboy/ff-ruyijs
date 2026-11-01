@@ -24,6 +24,27 @@ int Wait(int fd, short events, Clock::time_point end, Cancel cancel = nullptr, v
   }
 }
 Clock::time_point Deadline(uint32_t ms) { return Clock::now() + std::chrono::milliseconds(ms); }
+int OpenStream(int family) {
+#if defined(SOCK_NONBLOCK) && defined(SOCK_CLOEXEC)
+  return ::socket(family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+#else
+  const int fd = ::socket(family, SOCK_STREAM, 0);
+  if (fd < 0) return fd;
+  const int flags = fcntl(fd, F_GETFL, 0);
+  if (flags < 0 || fcntl(fd, F_SETFL, flags | O_NONBLOCK) < 0 || fcntl(fd, F_SETFD, FD_CLOEXEC) < 0) {
+    close(fd);
+    return -1;
+  }
+#ifdef SO_NOSIGPIPE
+  const int one = 1;
+  setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
+#endif
+  return fd;
+#endif
+}
+#ifndef MSG_NOSIGNAL
+#define MSG_NOSIGNAL 0
+#endif
 }
 extern "C" {
 int necko_socket_open_cancellable(const char* host, uint16_t port, uint32_t ms,
@@ -40,7 +61,7 @@ int necko_socket_open_cancellable(const char* host, uint16_t port, uint32_t ms,
   for (auto* address = addresses; address; address = address->ai_next) {
     if (cancel && cancel(user)) return 6;
     auto socket = std::make_unique<Socket>();
-    socket->fd = ::socket(address->ai_family, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0);
+    socket->fd = OpenStream(address->ai_family);
     if (socket->fd < 0) continue;
     if (connect(socket->fd, address->ai_addr, address->ai_addrlen)) {
       if (errno != EINPROGRESS) continue;

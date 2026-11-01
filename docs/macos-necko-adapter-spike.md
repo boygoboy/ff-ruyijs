@@ -1,28 +1,41 @@
 # Darwin Necko adapter spike
 
-This branch tries to run the Windows runtime's `necko` / `ruyijs_necko` packages on macOS. It is not a maintenance release. `main`, `release/macos`, `tls/necko-core-arm64`, and `macos-core-proxy` are unchanged. Nothing here is pushed.
+This branch runs the Windows runtime's `necko` / `ruyijs_necko` packages on macOS. It is not a maintenance release. `main`, `release/macos`, `tls/necko-core-arm64`, and `macos-core-proxy` stay where they were. Nothing here is pushed, and no pull request is opened.
 
-Products stay in gitignored `build/necko-darwin/`. `vendor/necko-derived/python` and `dist/js` were not replaced. The shell used for the smoke is the existing `dist/js`, with `RUYIJS_NECKO_PYTHON` pointed at the spike interpreter and `RUYIJS_XPCSHELL` pointed at a missing path.
+Products stay in gitignored `build/necko-darwin/`. `vendor/necko-derived/python` and `dist/js` were not replaced. The shell used for the smoke is the existing `dist/js`. `RUYIJS_NECKO_PYTHON` points at the spike interpreter and `RUYIJS_XPCSHELL` points at a missing path. When `NECKO_CORE_LIBRARY` is unset, `Context` uses `libnecko_core.dylib` next to that interpreter. The packaged `dist/necko_tls` library remains the default when `RUYIJS_NECKO_PYTHON` is unset.
 
-## What ran
+## What is installed
 
-`tools/build_necko_darwin.py` downloads the `runtime.json` 0.3.0 Windows archive, checks its size and SHA-256, and extracts the text files of `necko` and `ruyijs_necko` into a Python 3.14 virtualenv. The four Linux patch anchors are applied with `libnecko_core.dylib` instead of `libnecko_core.so`. `ruyijs_necko/oneshot.py` is replaced by `src/resource_network/necko_oneshot.py`. Python 3.12 cannot import this adapter: `ruyijs_necko/codec.py` imports `compression.zstd`, which is in the 3.14 standard library and is not in the extracted packages.
+`tools/build_necko_darwin.py` downloads the `runtime.json` 0.3.0 Windows archive, checks its size and SHA-256, and extracts the text files of `necko` and `ruyijs_necko` into a Python 3.14 virtualenv. The four Linux patch anchors are applied with `libnecko_core.dylib` instead of `libnecko_core.so`. `ruyijs_necko/oneshot.py` is `src/resource_network/necko_oneshot.py`. Python 3.12 cannot import this adapter: `ruyijs_necko/codec.py` imports `compression.zstd`, which the 3.14 standard library provides. The extracted `_tls_profiles.py` is the same 4883 bytes as `native/necko_tls/necko_win/_tls_profiles.py`.
 
-The adapter's `_load_library` already looks for `libnecko_core.dylib` on Darwin. Import proceeds through `necko.adapters` and stops in `ctypes.CDLL` because that file was not produced.
+The core library is `native/necko_posix/src` linked against the existing `../firefox-159/obj-necko` NSS. No NSS rebuild was started. Darwin has no `SOCK_NONBLOCK` or `SOCK_CLOEXEC`, so the socket opens with `fcntl` and `SO_NOSIGPIPE`. `SSL_DataPending` is a local symbol in the folded `libnss3.dylib`, so `necko_tls_pending` reports whether `PR_Recv` can peek one byte. The HTTP/2 pump only tests that sign. HTTP/3 and the Neqo bridge were not built.
 
-## Link
+The TLS option set follows the recovered `necko_core.dll` path in `native/necko_tls/necko_tls.c`. NSS defaults already leave OCSP stapling, delegated credentials, post-handshake auth, and the TLS 1.3 compatibility session id off. Enabling them added ClientHello extensions the captured Firefox hellos do not carry.
 
-`native/necko_posix/src` was compiled against `../firefox-159/obj-necko` NSS, with `-DXP_DARWIN` so the NSPR headers select `md/_darwin.cfg`. No NSS rebuild was started. HTTP/3 was not built.
+## What the smoke showed
 
-The link stops in `native/necko_posix/src/socket.cpp`: `SOCK_NONBLOCK` and `SOCK_CLOEXEC` are not declared on Darwin. Those flags were not patched. `build/necko-darwin/link.log` has the compiler output.
+`hello_probe.py` against the spike dylib, NSS 3.131:
 
-## Smoke
+| Profile | Ciphers | Groups | Key shares | Record | SCT | ECH | Compression |
+|---|---|---|---|---|---|---|---|
+| 100 | 17 | 6 | 2 (32, 65) | 517 | no | no | 0 |
+| 159 | 15 | 5 | 3 (1216, 32, 65) | 1832 | yes | yes | 3 |
 
-`Context.eval('1+1')` returned 2, so the existing shell still runs. `navigate('https://example.com/')` returned the URL and `document.title` stayed empty. The page did not load. A local proxy was not contacted, because the helper dies while loading `libnecko_core.dylib`, before a request is sent.
+The extension list and those lengths match `dist/necko_tls/libnecko_core.dylib` for both profiles. Version 159's cipher order matches too. Version 100's cipher order follows the profile table (`0xc00a`, `0xc009`, `0xc013`, `0xc014`). The existing library's preference loop emits `0xc009`, `0xc013`, `0xc00a`, `0xc014` for that profile.
+
+Through the existing shell, with xpcshell hidden:
+
+- `navigate('https://example.com/')` produced `document.title` `Example Domain`. A direct adapter GET returned status 200 and HTTP/2 (`raw.version` 20).
+- An HTTPS request through a local proxy sent `CONNECT example.com:443 HTTP/1.1` and loaded the same title. Two GETs in one adapter session used that one tunnel.
+- An HTTP request through the same proxy sent `GET http://example.com/ HTTP/1.1` and the proxy's response became the document.
+- A local HTTP document loaded directly. A local 302 from `/go` to `/land` ended on `Landed`.
+- `https://self-signed.badssl.com/` failed certificate validation.
+- A proxy URL with a path was refused before the proxy saw a connection, and the document title stayed empty.
+
+Loading the Firefox roots prints a `CryptographyDeprecationWarning` for one certificate serial that is not positive. The page still verified.
 
 ## Still open
 
-- The POSIX socket source does not compile on Darwin.
-- No `libnecko_core.dylib`, so direct HTTPS, proxy, and certificate checks were not exercised.
-- HTTP/3 and the Neqo bridge were not built. Handshake counts against `necko_tls` were not compared.
-- Proxy behavior of the Windows adapter on Darwin is unknown until the library loads.
+- HTTP/3 is not built, so Alt-Svc and the Neqo bridge are uncovered.
+- `necko_tls_pending` can say that plaintext is present. It cannot return the buffered byte count while `SSL_DataPending` stays a local symbol.
+- This note is the trial record. It does not change `docs/macos.md` or `runtime.json`.

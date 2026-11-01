@@ -36,6 +36,34 @@ def macos_core_library(runtime_root):
     return None
 
 
+def adapter_core_library(python_path):
+    """The Windows adapter's libnecko_core.dylib beside a virtualenv interpreter.
+
+    The venv ``python3`` link points at ``python3.14``, and that file points at
+    the framework interpreter. Following every link would leave the venv.
+    """
+    if not python_path:
+        return None
+    executable = Path(python_path)
+    if not executable.is_absolute():
+        executable = Path.cwd() / executable
+    name = executable.name
+    if executable.is_symlink():
+        target = Path(os.readlink(executable))
+        if not target.is_absolute() and target.name.startswith("python"):
+            name = target.name
+    lib = executable.parent.parent / "lib"
+    if not lib.is_dir():
+        return None
+    suffix = name.removeprefix("python")
+    if suffix[:1].isdigit() and suffix.count(".") == 1:
+        candidate = lib / f"python{suffix}" / "site-packages" / "necko" / "libnecko_core.dylib"
+        if candidate.is_file():
+            return candidate
+    matches = [item for item in lib.glob("python*/site-packages/necko/libnecko_core.dylib") if item.is_file()]
+    return matches[-1] if matches else None
+
+
 def _running_under_wine():
     try:
         import ctypes
@@ -138,13 +166,18 @@ class Context(EnvironmentControl, SchedulingControl, RandomControl, ResourceCont
             raise FileNotFoundError(f"ruyijs shell does not exist: {self.shell}")
         if sys.platform == "darwin":
             runtime_root = self.shell.parent.parent
-            if not child_environment.get("RUYIJS_NECKO_PYTHON"):
+            explicit_python = child_environment.get("RUYIJS_NECKO_PYTHON")
+            if not explicit_python:
                 bundled = runtime_root / "vendor" / "necko-derived" / "python" / "bin" / "python3"
                 plain = runtime_root / "vendor" / "necko-derived" / "python" / "python3"
                 if not bundled.is_file() and not plain.is_file():
                     child_environment["RUYIJS_NECKO_PYTHON"] = sys.executable
             if not child_environment.get("NECKO_CORE_LIBRARY"):
-                core = macos_core_library(runtime_root)
+                # An explicit interpreter keeps the libnecko_core.dylib installed
+                # beside it, including that copy's firefox-roots.pem.
+                core = adapter_core_library(explicit_python) if explicit_python else None
+                if core is None:
+                    core = macos_core_library(runtime_root)
                 if core is not None:
                     child_environment["NECKO_CORE_LIBRARY"] = str(core)
         _prefer_bundled_crt(self.shell)
