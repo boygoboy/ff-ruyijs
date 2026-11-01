@@ -56,7 +56,7 @@ python -m pip install ruyijs
 
 The Windows wheel ships the SHA256-pinned SpiderMonkey + Necko runtime (~42 MB). Local scripts run offline right after install — no browser download, no external dependencies.
 
-**macOS arm64:** the `macosx_26_0_arm64` wheel loads pages over direct HTTPS through `libnecko_core.dylib` and `libnecko_quic.dylib`, linked against the NSS of the same Firefox source. It has no xpcshell. `Context(proxy=...)` uses an HTTP CONNECT tunnel into `libnecko_core` when that binary is absent. The wheel already published as 0.3.0 does not include this until the next release. The Necko helper runs on the Python that installed ruyijs; its packages are dependencies of the macOS wheel. Details and the remaining gaps are in [docs/macos.md](docs/macos.md).
+**macOS arm64:** the `macosx_26_0_arm64` wheel loads pages over direct HTTPS through `libnecko_core.dylib` and `libnecko_quic.dylib`, linked against the NSS of the same Firefox source. It has no xpcshell. `Context(proxy=...)` uses an HTTP CONNECT tunnel into `libnecko_core` when that binary is absent. The Necko helper runs on the Python that installed ruyijs; its packages are dependencies of the macOS wheel. Details and the remaining gaps are in [docs/macos.md](docs/macos.md).
 
 **Linux x86_64:** the `manylinux_2_39_x86_64` wheel is a native ELF build, contributed by [@Starktomy](https://github.com/Starktomy) in #5. Text uses fontconfig, FreeType and HarfBuzz with the fonts installed on the machine, WebCrypto uses OpenSSL 3, and the Necko helper (NSS 3.131, Neqo for HTTP/3) brings its own Python. See [docs/linux.md](docs/linux.md).
 
@@ -68,7 +68,7 @@ python -m pip install --upgrade ruyijs
 To verify the installation:
 ```python
 import ruyijs
-print(ruyijs.__version__)   # 0.3.0
+print(ruyijs.__version__)   # 0.3.1
 ```
 
 ### Build from source
@@ -155,7 +155,7 @@ with Context() as context:
 
 ### Native network over Necko
 
-In-page `fetch` and XHR ride real HTTP/1.1, 2, and 3, through a proxy scoped to the context. Serve responses yourself with `put_resource()` to replay an entire captured flow offline. Inspect every request with `net_log()`. On macOS, pages load over direct HTTPS. A proxy uses the donor xpcshell when it is present, and an HTTP CONNECT tunnel into `libnecko_core` when it is not (`docs/macos.md`). The published 0.3.0 wheel predates that tunnel.
+In-page `fetch` and XHR ride real HTTP/1.1, 2, and 3, through a proxy scoped to the context. Serve responses yourself with `put_resource()` to replay an entire captured flow offline. Inspect every request with `net_log()`. On macOS, pages load over direct HTTPS. A proxy uses the donor xpcshell when it is present, and an HTTP CONNECT tunnel into `libnecko_core` when it is not (`docs/macos.md`).
 
 ### Native TLS fingerprint — switchable across Firefox 100 – 159
 
@@ -283,7 +283,7 @@ ruyiJS provides JavaScript execution and a broad Web API environment on **Window
 <details>
 <summary><b>Does it work on macOS or Linux?</b></summary>
 
-Yes. PyPI has a `macosx_26_0_arm64` wheel (macOS 26 or later) and a `manylinux_2_39_x86_64` wheel (glibc 2.39 or later). The published 0.3.0 macOS wheel has no xpcshell and no proxy tunnel; source after this change uses HTTP CONNECT when xpcshell is absent. See [docs/macos.md](docs/macos.md) and [docs/linux.md](docs/linux.md).
+Yes. PyPI has a `macosx_26_0_arm64` wheel (macOS 26 or later) and a `manylinux_2_39_x86_64` wheel (glibc 2.39 or later). The macOS wheel has no xpcshell; since 0.3.1 `Context(proxy=...)` uses an HTTP CONNECT tunnel there. See [docs/macos.md](docs/macos.md) and [docs/linux.md](docs/linux.md).
 
 The JS engine is Mozilla's official **SpiderMonkey** and the networking stack is Mozilla's official **Necko** — both are built from the official Firefox source, referenced as the `firefox/` submodule.
 </details>

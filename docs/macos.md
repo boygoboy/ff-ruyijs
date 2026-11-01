@@ -1,6 +1,6 @@
 # macOS arm64
 
-Since 0.3.0 the `macosx_26_0_arm64` wheel is on PyPI. GitHub Actions builds it from the `firefox/` submodule (`.github/workflows/build-macos.yml`): SpiderMonkey, Skia and NSS come from that source, and `libnecko_core.dylib` and `libnecko_quic.dylib` are linked against that NSS. It has no xpcshell. When that binary is absent, `Context(proxy=...)` opens an HTTP CONNECT tunnel and then uses `libnecko_core`. The donor-tree path below still includes xpcshell and keeps the Necko proxy prefs. The wheel already published as 0.3.0 does not include the tunnel.
+Since 0.3.0 the `macosx_26_0_arm64` wheel is on PyPI. GitHub Actions builds it from the `firefox/` submodule (`.github/workflows/build-macos.yml`): SpiderMonkey, Skia and NSS come from that source, and `libnecko_core.dylib` and `libnecko_quic.dylib` are linked against that NSS. It has no xpcshell. When that binary is absent, `Context(proxy=...)` opens an HTTP CONNECT tunnel and then uses `libnecko_core`. The donor-tree path below still includes xpcshell and keeps the Necko proxy prefs.
 
 The same facts are written in [macos.zh-CN.md](macos.zh-CN.md).
 

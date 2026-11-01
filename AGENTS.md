@@ -52,7 +52,7 @@ assets/                 README images and architecture diagrams
   `Engine`, which runs many Contexts in one process, each on its own thread with its own state (docs/engine.md).
 - Examples are run via `python -m ruyijs.examples <name>`.
 - All examples support `--proxy`, `--direct`, `--output`, `--help`.
-- Every wheel bundles its native runtime, built from the official Firefox 159.0 source in the `firefox/` submodule; no browser download is needed. The macOS wheel has no xpcshell. A proxy uses that binary when it is present, and an HTTP CONNECT tunnel into `libnecko_core` when it is not (`docs/macos.md`). The published 0.3.0 wheel predates the tunnel.
+- Every wheel bundles its native runtime, built from the official Firefox 159.0 source in the `firefox/` submodule; no browser download is needed. The macOS wheel has no xpcshell. A proxy uses that binary when it is present, and an HTTP CONNECT tunnel into `libnecko_core` when it is not (`docs/macos.md`).
 
 ## What NOT to do
 

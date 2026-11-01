@@ -1,6 +1,6 @@
 # macOS arm64 维护说明
 
-从 0.3.0 起，`macosx_26_0_arm64` wheel 已发布到 PyPI。它由 GitHub Actions 从 `firefox/` 子模块构建（`.github/workflows/build-macos.yml`）：SpiderMonkey、Skia 和 NSS 来自这份源码，`libnecko_core.dylib` 和 `libnecko_quic.dylib` 链接这份 NSS。这个 wheel 不带 xpcshell。没有该二进制时，`Context(proxy=...)` 先发 HTTP CONNECT，再进入 `libnecko_core`。下面的 donor 树路径仍带 xpcshell，代理继续走 Necko 偏好。已经发布的 0.3.0 wheel 不含这条隧道。
+从 0.3.0 起，`macosx_26_0_arm64` wheel 已发布到 PyPI。它由 GitHub Actions 从 `firefox/` 子模块构建（`.github/workflows/build-macos.yml`）：SpiderMonkey、Skia 和 NSS 来自这份源码，`libnecko_core.dylib` 和 `libnecko_quic.dylib` 链接这份 NSS。这个 wheel 不带 xpcshell。没有该二进制时，`Context(proxy=...)` 先发 HTTP CONNECT，再进入 `libnecko_core`。下面的 donor 树路径仍带 xpcshell，代理继续走 Necko 偏好。
 
 同一份事实的英文版在 [macos.md](macos.md)。
 
