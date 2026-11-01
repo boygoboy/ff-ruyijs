@@ -17,6 +17,8 @@ def proxy_endpoint():
 
     An ``https`` proxy URL only selects the default port. It does not open TLS
     to the proxy. The same checks as ``configureProxy()`` in ``necko_fetch.js``.
+    ``ruyijs_necko/oneshot.py`` keeps its own copy of them: it also runs in the
+    Windows and Linux helpers, which have no ``necko.client``.
     """
     proxy = os.environ.get("RUYIJS_HTTP_PROXY", "")
     if not proxy:
