@@ -2,7 +2,7 @@
 
 This branch runs the Windows runtime's `necko` / `ruyijs_necko` packages on macOS. It is not a maintenance release. `main`, `release/macos`, `tls/necko-core-arm64`, and `macos-core-proxy` stay where they were. Nothing here is pushed, and no pull request is opened.
 
-Products stay in gitignored `build/necko-darwin/`. `vendor/necko-derived/python` and `dist/js` were not replaced. The shell used for the smoke is the existing `dist/js`. `RUYIJS_NECKO_PYTHON` points at the spike interpreter and `RUYIJS_XPCSHELL` points at a missing path. When `NECKO_CORE_LIBRARY` is unset, `Context` uses `libnecko_core.dylib` next to that interpreter. The packaged `dist/necko_tls` library remains the default when `RUYIJS_NECKO_PYTHON` is unset.
+Products stay in gitignored `build/necko-darwin/`. `vendor/necko-derived/python` and `dist/js` were not replaced. The shell used for the smoke is the existing `dist/js`. When `RUYIJS_NECKO_PYTHON` is unset and `build/necko-darwin/python/bin/python3` exists, `Context` selects that interpreter and the `libnecko_core.dylib` beside it. An explicit `RUYIJS_NECKO_PYTHON` still wins. The packaged `dist/necko_tls` library remains the fallback when the built interpreter is absent.
 
 ## What is installed
 
@@ -25,16 +25,14 @@ The TLS option set follows the recovered `necko_core.dll` path in `native/necko_
 
 The extension list and those lengths match `dist/necko_tls/libnecko_core.dylib` for both profiles. Version 159's cipher order matches too. Version 100's cipher order follows the profile table (`0xc00a`, `0xc009`, `0xc013`, `0xc014`). The existing library's preference loop emits `0xc009`, `0xc013`, `0xc00a`, `0xc014` for that profile. The same probe against the spike library also matched the profile table for 119, 132, 135, 151, 154, and 156: cipher, group, and key-share counts were 17/6/2, 17/7/3, 17/7/3, 16/7/3, 15/7/3, and 15/5/3.
 
-Through the existing shell, with the donor xpcshell path either missing or set to the real binary:
+Through the existing shell, without setting `RUYIJS_NECKO_PYTHON`, and with `RUYIJS_XPCSHELL` pointed at the donor binary:
 
-- `navigate('https://example.com/')` produced `document.title` `Example Domain` and `nextHopProtocol` `h2`. A direct adapter GET returned status 200 and HTTP/2 (`raw.version` 20).
+- The helper process loaded modules from `build/necko-darwin/python/lib/python3.14/site-packages`.
+- `navigate('https://example.com/')` produced `document.title` `Example Domain` and `nextHopProtocol` `h2`. Establishment timing was non-zero: `domainLookupStart` 67, `connectStart` 87, `secureConnectionStart` 266.
 - A local server that negotiates only `http/1.1` produced `nextHopProtocol` `http/1.1`.
-- An HTTPS request through a local proxy sent `CONNECT example.com:443 HTTP/1.1` and loaded the same title. With `http://user:secret@127.0.0.1:<port>` the proxy also received `Proxy-Authorization: Basic dXNlcjpzZWNyZXQ=`. One CONNECT carried the page, and `nextHopProtocol` stayed `h2`. No new `xpcshell` process appeared.
-- An HTTP request through the same proxy sent `GET http://example.com/ HTTP/1.1` and the proxy's response became the document.
-- A local HTTP document loaded directly. `open_response` returned status 302 for a redirect. The page then followed it: `location.href` ended on `/land` and the title was `Landed`.
-- `https://self-signed.badssl.com/` failed certificate validation.
-- A proxy URL with a path was refused before the proxy saw a connection, and the document title stayed empty.
-- A new connection's navigation timing was non-zero: `domainLookupStart` 90, `connectStart` 121, `secureConnectionStart` 329.
+- `open_response` returned status 302 for a redirect. The page then followed it: `location.href` ended on `/land` and the title was `Landed`.
+- An HTTPS request through `http://user:secret@127.0.0.1:<port>` sent one `CONNECT example.com:443 HTTP/1.1` with `Proxy-Authorization: Basic dXNlcjpzZWNyZXQ=`, loaded `Example Domain`, and stayed on `h2`. No new `xpcshell` process appeared. A cleartext request through an HTTP proxy sends `GET http://example.com/ HTTP/1.1`.
+- A proxy URL with a path was refused before the proxy saw a connection, and the document title stayed empty. `https://self-signed.badssl.com/` failed certificate validation.
 
 HTTP/3 used a local `neqo-server` and a TCP server that advertised it with `Alt-Svc`. In one adapter session the first response was status 200, version 11, and 64 bytes. The second response was status 200, version 30, and the same 64 bytes. The page shell in one `Context` reported `nextHopProtocol` `http/1.1`, then `h3`. An alternate endpoint whose certificate failed validation made the second request raise `SSLError`; the status was not 200.
 
