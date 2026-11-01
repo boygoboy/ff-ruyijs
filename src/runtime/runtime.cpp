@@ -73,11 +73,7 @@ bool Reply(JSContext* cx, JS::HandleObject codec, JS::HandleValue id,
 
 bool Run(JSContext* cx, js::cli::OptionParser* options, Checkpoint checkpoint,
          const SessionThreads& threads) {
-  // Host is called from the frame RunSession is called from below, so its entry
-  // is where a single session's RunSession starts (SessionOptions::stack).
-  // `session` outlives the call, which keeps it from becoming a tail call.
   SessionOptions session;
-  if (options->getStringOption("ruyijs-host")) return Host(cx, options, checkpoint, threads);
   if (!options->getMultiStringOption('m').empty() ||
       !options->getMultiStringOption('p').empty() ||
       !options->getMultiStringOption('u').empty() || options->getBoolOption('i') ||
@@ -100,12 +96,18 @@ bool Run(JSContext* cx, js::cli::OptionParser* options, Checkpoint checkpoint,
   session.debug = mode && !strcmp(mode, "debug");
   if (const char* profile = options->getStringOption("ruyijs-environment"))
     session.environment = profile;
+  if (options->getStringOption("ruyijs-host")) session.host = &threads;
   return RunSession(cx, session, options, checkpoint);
 }
 
 bool RunSession(JSContext* cx, const SessionOptions& session, js::cli::OptionParser* cli,
                 Checkpoint checkpoint) {
-  if (session.stack) MatchNativeStack(cx, RUYIJS_ENTRY_POSITION(), session.stack);
+  // A single session and a shared engine enter here from the same statement
+  // of Run, so this is the native stack a single session has; the engine's
+  // sessions get exactly as much (SessionOptions::stack).
+  const uintptr_t entry = RUYIJS_ENTRY_POSITION();
+  if (session.host) return Host(cx, cli, checkpoint, *session.host, NativeStackBelow(cx, entry));
+  if (session.stack) MatchNativeStack(cx, entry, session.stack);
   // Heap compaction stays off for the whole runtime. The donor engine's
   // compacting GC faults while relocating the shape/property-map graph the
   // browser installers build (see docs/DEVIATIONS.md D16 for the reproducer

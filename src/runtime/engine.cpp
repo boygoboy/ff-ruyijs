@@ -221,10 +221,7 @@ class Engine final {
 }  // namespace
 
 bool Host(JSContext* cx, js::cli::OptionParser* options, Checkpoint checkpoint,
-          const SessionThreads& threads) {
-  // Run calls Host from the frame it calls RunSession from, so this is the
-  // native stack a single-session process leaves to its session.
-  const size_t stack = NativeStackBelow(cx, RUYIJS_ENTRY_POSITION());
+          const SessionThreads& threads, size_t stack) {
   const char* name = options->getStringOption("ruyijs-host");
   if (!name) return false;
   if (!options->getMultiStringOption('e').empty() || !options->getMultiStringOption('f').empty() ||

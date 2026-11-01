@@ -15,6 +15,7 @@ using Checkpoint = void (*)(JSContext*);
 // single-session process fills it from --ruyijs-rpc/--ruyijs-mode/
 // --ruyijs-environment; a shared engine fills it from each `open` request
 // (runtime/engine.cpp).
+struct SessionThreads;
 struct SessionOptions {
   std::string rpc;
   bool debug = false;
@@ -24,8 +25,10 @@ struct SessionOptions {
   // A shared engine's session: the native stack a single-session process
   // leaves to RunSession (bytes below its entry), so recursion depth matches.
   size_t stack = 0;
+  // Host mode (--ruyijs-host): RunSession, entered from the same statement of
+  // Run as a single session, measures that stack and serves the engine.
+  const SessionThreads* host = nullptr;
 };
-struct SessionThreads;
 // Every product mode enters here from the shell: a single session
 // (--ruyijs-rpc, --ruyijs-runtime) or a shared engine (--ruyijs-host).
 bool Run(JSContext* cx, js::cli::OptionParser* options, Checkpoint checkpoint,
@@ -46,7 +49,7 @@ struct SessionThreads {
   void (*join)(void* thread);
 };
 bool Host(JSContext* cx, js::cli::OptionParser* options, Checkpoint checkpoint,
-          const SessionThreads& threads);
+          const SessionThreads& threads, size_t stack);
 // The body of a session thread once the shell has set up its JSContext.
 void RunHostedSession(JSContext* cx, SessionRecord* record, Checkpoint checkpoint);
 // Worker process mode: the page Context spawned this process and connected
