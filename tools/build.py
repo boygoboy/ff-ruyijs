@@ -55,6 +55,9 @@ def arguments():
                         help="independent compiler processes (default: CPU count)")
     parser.add_argument("--necko-core-only", action="store_true",
                         help="build dist/necko_tls/libnecko_core.dylib and skip the shell")
+    parser.add_argument("--necko-nss-lib", default=os.environ.get("RUYIJS_NECKO_NSS_LIB"),
+                        help="directory with the NSS dylibs to link and ship "
+                             "(default: the firefox-gfx-obj dist/bin)")
     args = parser.parse_args()
     # The compilers, linkers and librarians run inside the build directories,
     # so a relative path given here means relative to where build.py started.
@@ -81,14 +84,17 @@ def local_directory(root, relative):
     return path
 
 
-def build_necko_core(root, necko_obj):
+def build_necko_core(root, necko_obj, nss_dir=None):
     """Link libnecko_core.dylib against the donor NSS next to xpcshell.
 
     The dylib's rpath is @loader_path. Symlinks beside it let a local probe
     load NSS without rewriting the donor binaries.
     """
     necko_obj = Path(necko_obj)
-    libdir = necko_obj / "dist" / "bin"
+    # The release-distribution libnss3 carries the merged SSL export; a local
+    # browser build can ship the split form (SSL in a libssl3 it does not
+    # install), so the NSS directory can be pointed at the donor app instead.
+    libdir = Path(nss_dir) if nss_dir else necko_obj / "dist" / "bin"
     include = necko_obj / "dist" / "include"
     # NSPR's source headers: the tree the objdir sits in, else the firefox/ submodule.
     nspr_source = necko_obj.parent / "nsprpub" / "pr" / "include"
@@ -123,6 +129,9 @@ def build_necko_core(root, necko_obj):
     ]
     subprocess.run(command, check=True)
     for name in ("libnss3.dylib", "libmozglue.dylib", "libfreebl3.dylib", "libsoftokn3.dylib"):
+        source = libdir / name
+        if not source.is_file():
+            continue
         link = out / name
         if link.is_symlink() or link.exists():
             link.unlink()
@@ -242,7 +251,7 @@ def main():
     if args.necko_core_only:
         if sys.platform != "darwin":
             raise SystemExit("libnecko_core is built on Darwin")
-        build_necko_core(root, args.firefox_gfx_obj)
+        build_necko_core(root, args.firefox_gfx_obj, args.necko_nss_lib)
         print("dist/necko_tls/libnecko_core.dylib")
         return 0
     mode = "pristine" if args.pristine else "runtime"
@@ -345,7 +354,7 @@ def main():
         if not args.pristine:
             report["client"] = build_client(native, destination)
             if sys.platform == "darwin":
-                build_necko_core(root, args.firefox_gfx_obj)
+                build_necko_core(root, args.firefox_gfx_obj, args.necko_nss_lib)
                 report["neckoCore"] = "dist/necko_tls/libnecko_core.dylib"
             # The Necko Python runtime ships with releases, not the source tree.
             # A checkout without the helper venv still links the shell.
