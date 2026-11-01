@@ -39,6 +39,21 @@ bool InstallExceptionSurface(JSContext* cx, JS::HandleObject global,
     if (!JS_DefineProperty(cx, prototype, kExceptionNames[index].constant, value, attrs) ||
         !JS_DefineProperty(cx, constructor, kExceptionNames[index].constant, value, attrs)) return false;
   }
+  // nsException's extra surface (the six members Firefox's DOMException
+  // prototype carries beside name/message/code): the throw-site location, the
+  // stack, the legacy nsresult, and the null payload accessor. Not enumerable,
+  // exactly like Firefox's prototype accessors.
+  struct ExceptionExtra { const char* name; bool (*native)(JSContext*, unsigned, JS::Value*); };
+  constexpr ExceptionExtra extras[] = {
+      {"filename", ExceptionFilenameGetter}, {"lineNumber", ExceptionLineGetter},
+      {"columnNumber", ExceptionColumnGetter}, {"stack", ExceptionStackGetter},
+      {"result", ExceptionResultGetter}, {"data", ExceptionDataGetter}};
+  for (const auto& extra : extras) {
+    JS::RootedFunction getter(cx, js::NewFunctionWithReserved(cx, extra.native, 0, 0, extra.name));
+    if (!getter) return false;
+    JS::RootedObject get(cx, JS_GetFunctionObject(getter)), set(cx);
+    if (!JS_DefineProperty(cx, prototype, extra.name, get, set, JSPROP_READONLY)) return false;
+  }
   return true;
 }
 }

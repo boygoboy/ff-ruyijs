@@ -43,6 +43,8 @@ def arguments():
     parser.add_argument("--firefox-gfx-obj", default=os.environ.get("RUYIJS_FIREFOX_GFX_OBJ"),
                         help="Firefox browser build objdir whose gfx/skia objects draw canvas "
                              "(env RUYIJS_FIREFOX_GFX_OBJ)")
+    parser.add_argument("--profile", default="firefox-environment.json",
+                        help="environment profile JSON under profiles/ baked into the shell")
     parser.add_argument("--pristine", action="store_true", help="relink donor objects only")
     parser.add_argument("--prepare-only", action="store_true", help="generate and record inputs")
     parser.add_argument("--no-incremental", action="store_true",
@@ -278,8 +280,8 @@ def main():
             sources.append(font_unit)
             inputs += font_inputs
             inputs += source_inputs + product_sources.inputs(root)
-            if (root / "profiles/firefox-environment.json").is_file():
-                profile_inputs = product_sources.profile(root, directory)
+            if (root / "profiles" / args.profile).is_file():
+                profile_inputs = product_sources.profile(root, directory, args.profile)
                 # The header is generated inside build/runtime and is an output
                 # of this invocation. Verify the source profile, not its
                 # rewritten output timestamp, as a donor input.

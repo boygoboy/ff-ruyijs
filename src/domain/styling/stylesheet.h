@@ -723,7 +723,10 @@ public:
             "text-indent", "text-transform", "white-space", "visibility", "cursor",
             "direction", "list-style", "list-style-type", "list-style-position",
             "list-style-image", "quotes", "border-collapse", "border-spacing",
-            "caption-side", "empty-cells", "orphans", "widows", "text-rendering"};
+            "caption-side", "empty-cells", "orphans", "widows", "text-rendering",
+            "accent-color", "color-scheme", "forced-color-adjust", "hyphens",
+            "image-rendering", "paint-order", "text-wrap", "overflow-wrap",
+            "font-variant-numeric"};
         return std::find(names.begin(), names.end(), property) != names.end();
     }
 
@@ -842,7 +845,21 @@ private:
             {"flex-grow", "0"}, {"flex-shrink", "1"}, {"flex-basis", "auto"},
             {"flex-direction", "row"}, {"flex-wrap", "nowrap"}, {"order", "0"},
             {"align-items", "normal"}, {"align-self", "auto"}, {"align-content", "normal"},
-            {"justify-content", "normal"}, {"row-gap", "normal"}, {"column-gap", "normal"}};
+            {"justify-content", "normal"}, {"row-gap", "normal"}, {"column-gap", "normal"},
+            {"place-items", "normal"}, {"text-wrap", "wrap"}, {"overflow-wrap", "normal"},
+            {"user-select", "auto"}, {"touch-action", "auto"}, {"isolation", "auto"},
+            {"mix-blend-mode", "normal"}, {"filter", "none"}, {"backdrop-filter", "none"},
+            {"mask-image", "none"}, {"clip-path", "none"}, {"paint-order", "normal"},
+            {"will-change", "auto"}, {"contain", "none"}, {"aspect-ratio", "auto"},
+            {"scale", "none"}, {"rotate", "none"}, {"translate", "none"},
+            {"accent-color", "auto"}, {"color-scheme", "normal"},
+            {"forced-color-adjust", "auto"}, {"scrollbar-gutter", "auto"},
+            {"scrollbar-width", "auto"}, {"overscroll-behavior", "auto"},
+            {"hyphens", "manual"}, {"image-rendering", "auto"},
+            {"text-underline-offset", "auto"}, {"text-decoration-thickness", "auto"},
+            {"font-variant-numeric", "normal"}, {"field-sizing", "content"},
+            {"forced-color-adjust", "auto"}, {"shape-outside", "none"},
+            {"background-blend-mode", "normal"}, {"container-type", "normal"}};
           for (const auto& font : CssFontDefaults()) values.try_emplace(font.name, font.value);
           return values;
         }();

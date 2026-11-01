@@ -170,8 +170,8 @@ OPTIONAL_PROFILE_GROUPS = ("webgl", "webgpu", "permissions", "geolocation", "spe
                            "storage", "media")
 
 
-def profile(root, directory):
-    source = root / "profiles/firefox-environment.json"
+def profile(root, directory, name="firefox-environment.json"):
+    source = root / "profiles" / name
     data = source.read_text(encoding="utf-8")
     parsed = json.loads(data)
     if (not isinstance(parsed, dict)
@@ -183,7 +183,7 @@ def profile(root, directory):
         raise ValueError("profile collides with its C++ raw-string delimiter")
     target = directory / "firefox_environment_profile.h"
     write_if_changed(target,
-        '// Generated from profiles/firefox-environment.json. Do not edit.\n'
+        f'// Generated from profiles/{name}. Do not edit.\n'
         '#pragma once\nnamespace ruyijs::browser_environment {\n'
         f'inline constexpr char kFirefoxEnvironmentProfile[] = R"{delimiter}('
         f'{data}){delimiter}";\n}}\n', encoding="utf-8")
