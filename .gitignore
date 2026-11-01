@@ -38,6 +38,7 @@
 !/tools/native.py
 !/tools/product_sources.py
 !/tools/signal_parity.py
+!/tools/shaping_parity.py
 !/tools/provenance.py
 !/tools/sanitizer_data.py
 !/tools/skia_native.py
