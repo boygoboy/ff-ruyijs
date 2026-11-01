@@ -58,6 +58,7 @@ typedef struct necko_conn {
     necko_decode_fn decode_cb;
     void *closure;
     int nonblocking;
+    int in_pending;
     int http2;
     char alpn[32];
     uint16_t cipher;
@@ -106,7 +107,13 @@ static necko_conn *conn_from(PRFileDesc *fd) {
 }
 
 static PRStatus layer_close(PRFileDesc *fd) {
-    (void)fd;
+    if (!fd) {
+        return PR_FAILURE;
+    }
+    fd->secret = NULL;
+    if (fd->dtor) {
+        fd->dtor(fd);
+    }
     return PR_SUCCESS;
 }
 
@@ -114,8 +121,15 @@ static PRInt32 layer_read(PRFileDesc *fd, void *buf, PRInt32 amount) {
     necko_conn *conn = conn_from(fd);
     uint32_t got = 0;
     int rc;
-    if (!conn || !conn->read_cb || amount <= 0) {
+    if (!conn || !conn->read_cb || !buf || amount < 0) {
         PR_SetError(PR_INVALID_ARGUMENT_ERROR, 0);
+        return -1;
+    }
+    if (amount == 0) {
+        return 0;
+    }
+    if (conn->in_pending && conn->idle_cb && conn->idle_cb(conn->closure) != 0) {
+        PR_SetError(PR_WOULD_BLOCK_ERROR, 0);
         return -1;
     }
     rc = conn->read_cb(conn->closure, buf, (uint32_t)amount, &got);
@@ -174,15 +188,21 @@ static PRInt64 layer_available64(PRFileDesc *fd) {
 
 static PRInt32 layer_recv(PRFileDesc *fd, void *buf, PRInt32 amount, PRIntn flags,
                           PRIntervalTime timeout) {
-    (void)flags;
     (void)timeout;
+    if (flags != 0) {
+        PR_SetError(PR_INVALID_ARGUMENT_ERROR, 0);
+        return -1;
+    }
     return layer_read(fd, buf, amount);
 }
 
 static PRInt32 layer_send(PRFileDesc *fd, const void *buf, PRInt32 amount, PRIntn flags,
                           PRIntervalTime timeout) {
-    (void)flags;
     (void)timeout;
+    if (flags != 0) {
+        PR_SetError(PR_INVALID_ARGUMENT_ERROR, 0);
+        return -1;
+    }
     return layer_write(fd, buf, amount);
 }
 
@@ -194,8 +214,13 @@ static PRInt16 layer_poll(PRFileDesc *fd, PRInt16 in_flags, PRInt16 *out_flags) 
 
 static PRStatus layer_getopt(PRFileDesc *fd, PRSocketOptionData *data) {
     necko_conn *conn = conn_from(fd);
+    if (!data) {
+        PR_SetError(PR_INVALID_ARGUMENT_ERROR, 0);
+        return PR_FAILURE;
+    }
     if (data->option == PR_SockOpt_Nonblocking) {
-        data->value.non_blocking = (conn && conn->nonblocking) ? PR_TRUE : PR_FALSE;
+        data->value.non_blocking =
+            (conn && (conn->in_pending || conn->nonblocking)) ? PR_TRUE : PR_FALSE;
         return PR_SUCCESS;
     }
     PR_SetError(PR_OPERATION_NOT_SUPPORTED_ERROR, 0);
@@ -364,9 +389,35 @@ static int apply_profile(PRFileDesc *fd, const necko_tls_profile *profile) {
     PRUint16 implemented_count;
     PRUint16 i;
     SSLVersionRange range;
-    unsigned char alpn_h2[] = {2, 'h', '2', 8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
+    /* SSL_SetNextProtoNego treats the first protocol as the NPN fallback and
+       moves it to the end of the wire ALPN list, so put http/1.1 first to
+       emit ["h2", "http/1.1"] on the wire. */
+    unsigned char alpn_h2[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1', 2, 'h', '2'};
     unsigned char alpn_h1[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
     uint32_t n;
+
+    if (SSL_OptionSet(fd, SSL_SECURITY, PR_TRUE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_HANDSHAKE_AS_CLIENT, PR_TRUE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_NO_CACHE, PR_FALSE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_SSL2, PR_FALSE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_SESSION_TICKETS, PR_TRUE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_DEFLATE, PR_FALSE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_FALLBACK_SCSV, PR_FALSE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_RENEGOTIATION, SSL_RENEGOTIATE_REQUIRES_XTN) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_EXTENDED_MASTER_SECRET, PR_TRUE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_HELLO_DOWNGRADE_CHECK, PR_TRUE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_REQUIRE_SAFE_NEGOTIATION, PR_TRUE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_ALPN, PR_TRUE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_0RTT_DATA, PR_TRUE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_POST_HANDSHAKE_AUTH, PR_FALSE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_DELEGATED_CREDENTIALS, PR_TRUE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_TLS13_COMPAT_MODE, PR_TRUE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_OCSP_STAPLING, PR_TRUE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_ENABLE_SIGNED_CERT_TIMESTAMPS,
+                      profile->signed_cert_timestamps ? PR_TRUE : PR_FALSE) != SECSuccess) {
+        set_nss_error("ssl options");
+        return -1;
+    }
 
     range.min = SSL_LIBRARY_VERSION_TLS_1_2;
     range.max = SSL_LIBRARY_VERSION_TLS_1_3;
@@ -385,6 +436,14 @@ static int apply_profile(PRFileDesc *fd, const necko_tls_profile *profile) {
     for (n = 0; n < profile->cipher_count; n++) {
         if (SSL_CipherPrefSet(fd, profile->ciphers[n], PR_TRUE) != SECSuccess) {
             set_nss_error("cipher enable");
+            return -1;
+        }
+    }
+    if (profile->cipher_count > 0) {
+        if (!SSL_GetExperimentalAPI("SSL_CipherSuiteOrderSet") ||
+            SSL_CipherSuiteOrderSet(fd, profile->ciphers, (PRUint16)profile->cipher_count) !=
+                SECSuccess) {
+            set_nss_error("cipher order");
             return -1;
         }
     }
@@ -427,11 +486,6 @@ static int apply_profile(PRFileDesc *fd, const necko_tls_profile *profile) {
         }
         free(schemes);
     }
-    if (SSL_OptionSet(fd, SSL_ENABLE_SIGNED_CERT_TIMESTAMPS,
-                      profile->signed_cert_timestamps ? PR_TRUE : PR_FALSE) != SECSuccess) {
-        set_nss_error("sct");
-        return -1;
-    }
     if (profile->grease_ech) {
         uint32_t size = profile->grease_ech_size ? profile->grease_ech_size : 100;
         if (size > 255) {
@@ -446,6 +500,8 @@ static int apply_profile(PRFileDesc *fd, const necko_tls_profile *profile) {
             set_nss_error("grease ech size");
             return -1;
         }
+    } else if (SSL_GetExperimentalAPI("SSL_EnableTls13GreaseEch")) {
+        SSL_EnableTls13GreaseEch(fd, PR_FALSE);
     }
     if (profile->compression_count > 8) {
         set_error("too many compression algorithms");
@@ -456,7 +512,11 @@ static int apply_profile(PRFileDesc *fd, const necko_tls_profile *profile) {
         g_decode_ids[n] = profile->compression[n];
         memset(&algorithm, 0, sizeof(algorithm));
         algorithm.id = profile->compression[n];
-        algorithm.name = "profile";
+        algorithm.name = profile->compression[n] == 1
+                             ? "zlib"
+                             : (profile->compression[n] == 2
+                                    ? "brotli"
+                                    : (profile->compression[n] == 3 ? "zstd" : "profile"));
         algorithm.encode = encode_unused;
         algorithm.decode = k_decoders[n];
         if (SSL_SetCertificateCompressionAlgorithm(fd, algorithm) != SECSuccess) {
@@ -464,10 +524,9 @@ static int apply_profile(PRFileDesc *fd, const necko_tls_profile *profile) {
             return -1;
         }
     }
-    if (SSL_OptionSet(fd, SSL_ENABLE_ALPN, PR_TRUE) != SECSuccess ||
-        SSL_SetNextProtoNego(fd, profile ? (g_current && g_current->http2 ? alpn_h2 : alpn_h1) : alpn_h1,
+    if (SSL_SetNextProtoNego(fd, g_current && g_current->http2 ? alpn_h2 : alpn_h1,
                              g_current && g_current->http2 ? sizeof(alpn_h2) : sizeof(alpn_h1)) !=
-            SECSuccess) {
+        SECSuccess) {
         set_nss_error("alpn");
         return -1;
     }
@@ -583,7 +642,7 @@ static int open_common(const char *host, const char *peer_id, int http2,
         return -1;
     }
     if (!profile) {
-        unsigned char alpn_h2[] = {2, 'h', '2', 8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
+        unsigned char alpn_h2[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1', 2, 'h', '2'};
         unsigned char alpn_h1[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
         SSL_OptionSet(conn->ssl, SSL_ENABLE_ALPN, PR_TRUE);
         SSL_SetNextProtoNego(conn->ssl, http2 ? alpn_h2 : alpn_h1,
@@ -672,9 +731,21 @@ NECKO_EXPORT int necko_tls_write(necko_conn *conn, const uint8_t *buf, uint32_t 
         set_error("missing handle");
         return -1;
     }
+    if (size == 0) {
+        return 0;
+    }
+    if (!buf) {
+        set_error("missing buffer");
+        return -1;
+    }
     g_current = conn;
     while (offset < size) {
-        PRInt32 n = PR_Write(conn->ssl, buf + offset, (PRInt32)(size - offset));
+        uint32_t chunk = size - offset;
+        PRInt32 n;
+        if (chunk > 0x4000u) {
+            chunk = 0x4000u;
+        }
+        n = PR_Write(conn->ssl, buf + offset, (PRInt32)chunk);
         if (n < 0) {
             int blocked = PR_GetError() == PR_WOULD_BLOCK_ERROR;
             g_current = NULL;
@@ -698,12 +769,22 @@ NECKO_EXPORT int necko_tls_write(necko_conn *conn, const uint8_t *buf, uint32_t 
 NECKO_EXPORT int necko_tls_write_some(necko_conn *conn, const uint8_t *buf, uint32_t size,
                                       uint32_t *length) {
     PRInt32 n;
+    uint32_t chunk;
     if (!conn || !length) {
         set_error("missing handle");
         return -1;
     }
+    *length = 0;
+    if (size == 0) {
+        return 0;
+    }
+    if (!buf) {
+        set_error("missing buffer");
+        return -1;
+    }
+    chunk = size > 0x4000u ? 0x4000u : size;
     g_current = conn;
-    n = PR_Write(conn->ssl, buf, (PRInt32)size);
+    n = PR_Write(conn->ssl, buf, (PRInt32)chunk);
     g_current = NULL;
     if (n >= 0) {
         *length = (uint32_t)n;
@@ -717,15 +798,11 @@ NECKO_EXPORT int necko_tls_write_some(necko_conn *conn, const uint8_t *buf, uint
 }
 
 NECKO_EXPORT void necko_tls_set_nonblocking(necko_conn *conn, necko_write_some_fn write_some) {
-    PRSocketOptionData option;
     if (!conn) {
         return;
     }
     conn->write_some_cb = write_some;
-    conn->nonblocking = 1;
-    option.option = PR_SockOpt_Nonblocking;
-    option.value.non_blocking = PR_TRUE;
-    PR_SetSocketOption(conn->ssl, &option);
+    conn->nonblocking = write_some ? 1 : 0;
 }
 
 NECKO_EXPORT void necko_tls_close(necko_conn *conn) {
@@ -739,12 +816,31 @@ NECKO_EXPORT void necko_tls_close(necko_conn *conn) {
 }
 
 NECKO_EXPORT int necko_tls_pending(necko_conn *conn) {
-    PRInt32 available;
-    if (!conn) {
+    uint8_t byte = 0;
+    PRInt32 rc;
+    int32_t err;
+    if (!conn || !conn->ssl) {
+        set_error("missing handle");
+        return -1;
+    }
+    g_current = conn;
+    conn->in_pending = 1;
+    rc = PR_Recv(conn->ssl, &byte, 1, PR_MSG_PEEK, PR_INTERVAL_NO_WAIT);
+    conn->in_pending = 0;
+    g_current = NULL;
+    if (rc > 0) {
+        return 1;
+    }
+    if (rc == 0) {
+        set_error("NSS peer closed the connection");
+        return -1;
+    }
+    err = PR_GetError();
+    if (err == PR_WOULD_BLOCK_ERROR) {
         return 0;
     }
-    available = PR_Available(conn->ssl);
-    return available > 0 ? 1 : 0;
+    set_nss_error("pending");
+    return -1;
 }
 
 NECKO_EXPORT const char *necko_tls_alpn(necko_conn *conn) {
