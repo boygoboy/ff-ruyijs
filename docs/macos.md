@@ -1,6 +1,6 @@
 # macOS arm64
 
-Since 0.3.0 the `macosx_26_0_arm64` wheel is on PyPI. GitHub Actions builds it from the `firefox/` submodule (`.github/workflows/build-macos.yml`): SpiderMonkey, Skia and NSS come from that source, and `libnecko_core.dylib` and `libnecko_quic.dylib` are linked against that NSS. It has no xpcshell, so a proxy is not available in that wheel. The donor-tree path below is the maintainer build that includes xpcshell.
+Since 0.3.0 the `macosx_26_0_arm64` wheel is on PyPI. GitHub Actions builds it from the `firefox/` submodule (`.github/workflows/build-macos.yml`): SpiderMonkey, Skia and NSS come from that source, and `libnecko_core.dylib` and `libnecko_quic.dylib` are linked against that NSS. It has no xpcshell. When that binary is absent, `Context(proxy=...)` opens an HTTP CONNECT tunnel and then uses `libnecko_core`. The donor-tree path below still includes xpcshell and keeps the Necko proxy prefs. The wheel already published as 0.3.0 does not include the tunnel.
 
 The same facts are written in [macos.zh-CN.md](macos.zh-CN.md).
 
@@ -10,7 +10,7 @@ The shared Python API, DOM, clock, and page logic stay one source tree. macOS ad
 
 - Same API: JS contexts, DOM, the Python bridge, WebCrypto algorithms, and the static image formats.
 - Acceptable platform differences: a named pipe or a Unix socket, CNG or CommonCrypto, WIC or ImageIO, DirectWrite or Core Text. GIF disposal, glyph gamma, and CJK fallback follow the system decoder. They are not pixel-identical to Windows.
-- Still outside this port: the socket process stays off. Turning the prefs on makes this xpcshell exit with signal 11 while filling Mac sandbox parameters. The donor `plugin-container.app` is produced by building `ipc/app`. Direct HTTPS follows `Context(tls=)` through `libnecko_core.dylib` for ClientHello counts and for the 0.2.1 header and HTTP/2 settings table. Pages were rechecked for 100 and 159. Eight boundary versions were library GETs, not pages. A proxy stays on xpcshell and was not retested. DNS, connect, and TLS timing slots stay 0. The PyPI wheel has no xpcshell. `macos.url` is the fork release zip. Direct cleartext and HTTP/3 are in `docs/closed-route.zh-CN.md`.
+- Still outside this port: the socket process stays off. Turning the prefs on makes this xpcshell exit with signal 11 while filling Mac sandbox parameters. The donor `plugin-container.app` is produced by building `ipc/app`. Direct HTTPS follows `Context(tls=)` through `libnecko_core.dylib` for ClientHello counts and for the 0.2.1 header and HTTP/2 settings table. Pages were rechecked for 100 and 159. Eight boundary versions were library GETs, not pages. A proxy stays on xpcshell when that binary exists. Without it, HTTPS uses CONNECT and cleartext uses an absolute-form request; HTTP/3 does not go through the proxy. DNS, connect, and TLS timing slots stay 0. The PyPI wheel has no xpcshell. `macos.url` is the fork release zip. Direct cleartext and HTTP/3 are in `docs/closed-route.zh-CN.md`.
 
 ## What lives where
 
@@ -81,7 +81,7 @@ python3.12 -B tools/bootstrap_macos_helper.py
 python3.12 -B tools/build.py --donor-obj ../firefox-159/obj-js-standalone
 ```
 
-Bootstrap installs `requests`, `brotli`, `zstandard`, `h2`, `cryptography`, `backports.zstd`, and `publicsuffixlist`. Missing wheels come only from gitignored `vendor/necko-derived/wheels`, with `pip --no-index`. Fill that directory with `curl --noproxy '*'` from a mirror of the simple index. An empty directory and a missing import stop the script. The script contains no proxy address. This round did not run bootstrap again. The current helper already imports `publicsuffixlist`. `firefox-suffixes.dat` sits beside `necko_win/_firefox.py` and is copied with that directory. Direct HTTPS uses `h2` and `cryptography` with the library. `requests` still prepares the frame that oneshot already spoke on Windows. A proxy or a non-HTTPS URL still uses the donor xpcshell.
+Bootstrap installs `requests`, `brotli`, `zstandard`, `h2`, `cryptography`, `backports.zstd`, and `publicsuffixlist`. Missing wheels come only from gitignored `vendor/necko-derived/wheels`, with `pip --no-index`. Fill that directory with `curl --noproxy '*'` from a mirror of the simple index. An empty directory and a missing import stop the script. The script contains no proxy address. This round did not run bootstrap again. The current helper already imports `publicsuffixlist`. `firefox-suffixes.dat` sits beside `necko_win/_firefox.py` and is copied with that directory. Direct HTTPS uses `h2` and `cryptography` with the library. `requests` still prepares the frame that oneshot already spoke on Windows. A proxy uses the donor xpcshell when that binary exists. Without it, HTTPS uses CONNECT and cleartext uses an absolute-form request. A non-HTTP URL still uses the donor xpcshell.
 
 `tools/build.py` then copies tracked sources into the venv:
 

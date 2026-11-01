@@ -3,15 +3,17 @@
 Direct HTTPS uses libnecko_core when that library reports NSS 3.131.
 Direct cleartext HTTP uses the recovered socket and HTTP/1 exchange.
 A response Alt-Svc h3 entry is remembered for that origin. The next
-direct request uses necko_quic and the linked Neqo client. A proxy, and
-any other non-HTTPS URL, keeps the donor xpcshell. A request the library
+direct request uses necko_quic and the linked Neqo client. A proxy uses
+the donor xpcshell when that binary is present, the same Necko prefs as
+Windows. Without xpcshell, HTTPS uses CONNECT and then libnecko_core, and
+cleartext HTTP uses an absolute-form request on the recovered exchange.
+Any other non-HTTPS URL keeps the donor xpcshell. A request the library
 cannot represent falls back for that request only. Certificate
 verification failures stay on the library path. This process does not
 store cookies, does not follow redirects, and does not turn the socket
 process on.
 """
 
-import os
 import time
 from urllib.parse import urlsplit
 
@@ -98,21 +100,25 @@ class RoutingClient:
 
     def fetch(self, method, url, headers, body, budget_s):
         parts = urlsplit(url)
-        proxied = bool(os.environ.get("RUYIJS_HTTP_PROXY"))
-        if not proxied and parts.hostname:
-            from necko.closed_route import cleartext_fetch, http3_fetch
+        from necko.client import proxy_endpoint, xpcshell_available
 
-            if parts.scheme == "http":
-                return cleartext_fetch(method, url, headers, body, budget_s)
-            if parts.scheme == "https":
-                endpoint = self._alternative(parts)
-                if endpoint is not None:
-                    return http3_fetch(method, url, headers, body, budget_s, endpoint)
-        use_core = (
-            not proxied
-            and parts.scheme == "https"
-            and bool(parts.hostname)
-        )
+        proxied = proxy_endpoint() is not None
+        if proxied and xpcshell_available():
+            client = self._xpcshell()
+            response = client.fetch(method, url, headers, body, budget_s)
+            self.last_hello = getattr(client, "last_hello", b"") or b""
+            return response
+        if parts.scheme == "http" and parts.hostname:
+            from necko.closed_route import cleartext_fetch
+
+            return cleartext_fetch(method, url, headers, body, budget_s)
+        if not proxied and parts.scheme == "https" and parts.hostname:
+            from necko.closed_route import http3_fetch
+
+            endpoint = self._alternative(parts)
+            if endpoint is not None:
+                return http3_fetch(method, url, headers, body, budget_s, endpoint)
+        use_core = parts.scheme == "https" and bool(parts.hostname)
         client = self._library() if use_core else None
         if client is None:
             client = self._xpcshell()

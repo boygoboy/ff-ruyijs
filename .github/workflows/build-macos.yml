@@ -3,7 +3,8 @@ name: Build (macOS)
 # Builds ruyijs for Apple Silicon from the official Firefox release in the
 # firefox/ submodule: SpiderMonkey, Skia and NSS come from that source tree,
 # libnecko_core/libnecko_quic from native/ against that NSS. The wheel has no
-# xpcshell (XUL does not fit the runners), so proxies are not available.
+# xpcshell (XUL does not fit the runners). A proxy then uses HTTP CONNECT
+# into libnecko_core. The wheel published as 0.3.0 does not include that path.
 # Called by wheels.yml; can also run on its own.
 on:
   workflow_call:

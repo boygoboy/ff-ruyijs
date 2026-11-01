@@ -50,7 +50,7 @@ assets/                 README images and architecture diagrams
 - Each `Context` is an **isolated process** — no shared state between contexts.
 - Examples are run via `python -m ruyijs.examples <name>`.
 - All examples support `--proxy`, `--direct`, `--output`, `--help`.
-- Every wheel bundles its native runtime, built from the official Firefox 159.0 source in the `firefox/` submodule; no browser download is needed. The macOS wheel has no xpcshell, so proxies are not available there (`docs/macos.md`).
+- Every wheel bundles its native runtime, built from the official Firefox 159.0 source in the `firefox/` submodule; no browser download is needed. The macOS wheel has no xpcshell. A proxy uses that binary when it is present, and an HTTP CONNECT tunnel into `libnecko_core` when it is not (`docs/macos.md`). The published 0.3.0 wheel predates the tunnel.
 
 ## What NOT to do
 
