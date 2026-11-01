@@ -17,6 +17,22 @@ All notable changes to this project are documented here. The format follows
   PyPI wheel is unchanged.
 - CI: `ci/hello_check.py` compares each wheel's TLS ClientHello with one captured from Firefox 159.0
   (`ci/firefox159-hello.json`); it fails the Windows, macOS and Linux builds on any difference.
+- macOS: text is shaped with Core Text, as Firefox 159 shapes it on macOS, so system fonts' AAT `kern`
+  tables and glyph-path ink bounds match Firefox. Windows and Linux keep HarfBuzz (#8 by @isesword).
+- `DOMException.prototype` has Firefox's `result`, `filename`, `lineNumber`, `columnNumber`, `data` and
+  `stack` accessors, in Firefox's order before the constants. `data` exists on Window only and `stack` is
+  `[Replaceable]` (#8 by @isesword).
+- `CSS.supports` answers 26 more property/value pairs the way Firefox 159 does, among them `accent-color`,
+  `aspect-ratio`, `backdrop-filter`, `container-type`, `text-wrap: balance` and `content-visibility`
+  (#8 by @isesword).
+- `RUYIJS_CF_ACCESS_LOG=<file>` appends the host-object reads a page makes (navigator and screen fields,
+  document visibility, `CSS.supports`, `matchMedia`) to that file; `tools/signal_parity.py` collects the
+  same reads from Firefox 159. Off by default (#8 by @isesword).
+- Local macOS builds: `tools/build.py --profile firefox-environment-macos.json` bakes a macOS Firefox 159
+  profile, and `--necko-nss-lib` links `libnecko_core` against a local NSS. CI and the wheels keep the
+  default profile (#8 by @isesword).
+- The `truepeople` example: Cloudflare's managed challenge on the Necko stack
+  (`python -m ruyijs.examples truepeople`) (#8 by @isesword).
 
 ### Changed
 
