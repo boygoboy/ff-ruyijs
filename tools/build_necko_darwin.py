@@ -49,6 +49,35 @@ PATCHES = {
          '                profile=PROFILES[self.firefox]["quic"],\n'
          '                firefox=self.firefox,\n'),
     ],
+    "necko/_transport.py": [
+        ("        from ._connect import race\n", "        from ._connect import Attempt\n"),
+        ("        connection = race(\n"
+         "            quic,\n"
+         "            lambda attempt: self._connect(\n"
+         "                request.url, None, verify, None, attempt.remaining(), attempt, control=control\n"
+         "            ),\n"
+         "            timeout,\n"
+         "            control=control,\n"
+         "        )\n"
+         "        if connection.alpn != \"h3\":\n"
+         "            from ruyijs_necko.cache_snapshot import drop\n"
+         "            drop(self, \"_alt_svc\", key, expected=alternate)\n"
+         "        return connection\n",
+         "        # A remembered Alt-Svc is this origin's next route. Letting a faster\n"
+         "        # TCP connection win, then forgetting the endpoint, keeps that origin\n"
+         "        # on HTTP/2. Certificate failure still fails the request.\n"
+         "        started = time.monotonic()\n"
+         "        deadline = None if timeout is None else started + timeout\n"
+         "        try:\n"
+         "            connection = quic(Attempt(deadline))\n"
+         "        except ssl.SSLError:\n"
+         "            raise\n"
+         "        except (OSError, ProtocolError, TimeoutError):\n"
+         "            connection = self._connect(\n"
+         "                request.url, None, verify, None, timeout, control=control\n"
+         "            )\n"
+         "        return connection\n"),
+    ],
     "necko/_connect.py": [
         ("import threading\nimport time\n", "import ssl\nimport threading\nimport time\n"),
         ("            if winner:\n                returned = True\n                return winner[0]\n",
@@ -353,6 +382,23 @@ def compile_quic(root, site, nss_obj):
     return installed
 
 
+def stage_runtime(root):
+    """Copy the built helper to dist/necko-adapter, the runtime Context recognizes."""
+    source = root / "build/necko-darwin/python"
+    if not (source / "bin/python3").is_file():
+        raise FileNotFoundError(source / "bin/python3")
+    dest = root / "dist/necko-adapter/python"
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, dest, symlinks=True)
+    core = next(dest.glob("lib/python*/site-packages/necko/libnecko_core.dylib"), None)
+    quic = next(dest.glob("lib/python*/site-packages/necko/libnecko_quic.dylib"), None)
+    if core is None or not core.is_file() or quic is None or not quic.is_file():
+        raise FileNotFoundError("staged adapter is missing libnecko_core or libnecko_quic")
+    return dest.parent
+
+
 def probe_imports(python, report):
     code = r"""
 import traceback
@@ -389,6 +435,7 @@ def main():
             [str(python), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
             text=True).strip())
         print("quic", compile_quic(root, site, args.nss_obj))
+        print("runtime", stage_runtime(root))
         return
     runtime = build / "python"
     python = runtime / "bin/python3"
@@ -412,6 +459,8 @@ def main():
         print("quic", compile_quic(root, site, args.nss_obj))
     except Exception as error:
         print("QUIC_FAILED", error)
+    if (build / "python/bin/python3").is_file():
+        print("runtime", stage_runtime(root))
     code = probe_imports(python, build / "import-report.txt")
     print("import_ec", code)
     print((build / "import-report.txt").read_text(encoding="utf-8"))

@@ -28,6 +28,12 @@ NECKO_DIRS = ("modules", "components", "defaults")
 SHELL_FILES = ("js", "libmozglue.dylib", "libruyijs_client.dylib")
 
 
+def _copy_tree(source: Path, dest: Path) -> None:
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(source, dest, symlinks=True)
+
+
 def donor_bin(project: Path) -> Path:
     override = os.environ.get("RUYIJS_XPCSHELL")
     if override:
@@ -92,6 +98,9 @@ def write_runtime_zip(project: Path, archive: Path) -> None:
         dist.mkdir()
         for name in SHELL_FILES:
             shutil.copy2(shell / name, dist / name)
+        adapter = project / "dist" / "necko-adapter"
+        if (adapter / "python" / "bin" / "python3").is_file():
+            _copy_tree(adapter, dist / "necko-adapter")
         stage_necko(
             dist / "necko",
             donor_bin(project),
@@ -104,7 +113,12 @@ def write_runtime_zip(project: Path, archive: Path) -> None:
             archive.unlink()
         with zipfile.ZipFile(archive, "w", compression=zipfile.ZIP_DEFLATED) as packed:
             for path in sorted(root.rglob("*")):
-                if path.is_file():
+                if path.is_symlink():
+                    info = zipfile.ZipInfo(path.relative_to(root).as_posix())
+                    info.create_system = 3
+                    info.external_attr = (0o120777) << 16
+                    packed.writestr(info, os.readlink(path))
+                elif path.is_file():
                     packed.write(path, path.relative_to(root).as_posix())
     print("size", archive.stat().st_size)
     print("sha256", hashlib.sha256(archive.read_bytes()).hexdigest())

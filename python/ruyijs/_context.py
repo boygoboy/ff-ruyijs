@@ -37,9 +37,16 @@ def macos_core_library(runtime_root):
 
 
 def darwin_adapter_python(runtime_root):
-    """The built Windows-adapter interpreter, when this checkout has one."""
-    candidate = Path(runtime_root) / "build" / "necko-darwin" / "python" / "bin" / "python3"
-    return candidate if candidate.is_file() else None
+    """The packaged adapter, then the build-tree interpreter."""
+    root = Path(runtime_root)
+    for relative in (
+        ("dist", "necko-adapter", "python", "bin", "python3"),
+        ("build", "necko-darwin", "python", "bin", "python3"),
+    ):
+        candidate = root.joinpath(*relative)
+        if candidate.is_file():
+            return candidate
+    return None
 
 
 def adapter_core_library(python_path):
