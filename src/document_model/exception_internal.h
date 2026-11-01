@@ -18,6 +18,7 @@ bool ExceptionFilenameGetter(JSContext*, unsigned, JS::Value*);
 bool ExceptionLineGetter(JSContext*, unsigned, JS::Value*);
 bool ExceptionColumnGetter(JSContext*, unsigned, JS::Value*);
 bool ExceptionStackGetter(JSContext*, unsigned, JS::Value*);
+bool ExceptionStackSetter(JSContext*, unsigned, JS::Value*);
 bool ExceptionResultGetter(JSContext*, unsigned, JS::Value*);
 bool ExceptionDataGetter(JSContext*, unsigned, JS::Value*);
 }

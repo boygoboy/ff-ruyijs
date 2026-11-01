@@ -182,4 +182,18 @@ bool ExceptionDataGetter(JSContext* cx, unsigned argc, JS::Value* vp) {
   if (!ExceptionReceiver(cx, argc, vp, &self)) return false;
   args.rval().setNull();return true;
 }
+// [Replaceable] stack: an assignment defines an own data property on the
+// receiver ({value, writable, enumerable, configurable}, the WebIDL
+// [Replaceable] behaviour), leaving the captured frame chain untouched.
+bool ExceptionStackSetter(JSContext* cx, unsigned argc, JS::Value* vp) {
+  JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
+  JS::RootedObject self(cx);
+  if (!ExceptionReceiver(cx, argc, vp, &self)) return false;
+  JS::RootedId key(cx);
+  JS::RootedValue nameValue(cx, JS::StringValue(JS_NewStringCopyZ(cx, "stack")));
+  if (!nameValue.isString() || !JS_ValueToId(cx, nameValue, &key)) return false;
+  if (!JS_DefinePropertyById(cx, self, key, args.get(0),
+                             JSPROP_ENUMERATE)) return false;
+  args.rval().set(args.get(0));return true;
+}
 }

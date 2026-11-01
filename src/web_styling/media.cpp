@@ -75,10 +75,6 @@ bool Noop(JSContext* cx, unsigned argc, JS::Value* vp) {
 bool MatchMedia(JSContext* cx, unsigned argc, JS::Value* vp) {
   auto args = JS::CallArgsFromVp(argc, vp);
   if(!argc) return WebKit::Fail(cx,"matchMedia requires a query");
-  {
-    std::string query;
-    if (detail::ToAscii(cx, args.get(0), &query)) cf_log::access("matchMedia", query);
-  }
   State& state = *detail::Self(args);
   bool is_page = args.thisv().isUndefined() ||
                  (args.thisv().isObject() && &args.thisv().toObject() == state.page);
@@ -86,6 +82,9 @@ bool MatchMedia(JSContext* cx, unsigned argc, JS::Value* vp) {
   std::string query;
   if (!detail::ToAscii(cx, args.get(0), &query)) return false;
   ruyijs::domain::styling::MediaListValue media;media.set(query);query=media.text();
+  // Logged after the one ToString the page already observes, so the access
+  // log never adds a conversion the real browser would not make.
+  cf_log::access("matchMedia", query);
   JS::RootedString text(cx, JS_NewStringCopyUTF8N(cx, JS::UTF8Chars(query.data(), query.size())));
   JS::RootedObject object(cx, JS_NewObjectWithGivenProto(cx, &kMediaQueryClass,
                                                         state.mediaQuery.prototype));

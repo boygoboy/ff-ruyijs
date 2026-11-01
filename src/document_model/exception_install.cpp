@@ -8,7 +8,8 @@
 
 namespace ruyijs::document_model {
 bool InstallExceptionSurface(JSContext* cx, JS::HandleObject global,
-                              JS::MutableHandleObject prototype, JS::MutableHandleObject constructor) {
+                              JS::MutableHandleObject prototype, JS::MutableHandleObject constructor,
+                              bool window_exposed) {
   JSAutoRealm realm(cx, global);
   JS::RootedObject error(cx);
   if (!JS_GetClassPrototype(cx, JSProto_Error, &error)) return false;
@@ -33,26 +34,37 @@ bool InstallExceptionSurface(JSContext* cx, JS::HandleObject global,
     js::SetFunctionNativeReserved(get, 1, JS::Int32Value(slot));
     if (!JS_DefineProperty(cx, prototype, fields[slot], get, set, JSPROP_ENUMERATE)) return false;
   }
+  // nsException's extra surface, in Firefox's own prototype order
+  // (name, message, code, result, filename, lineNumber, columnNumber, data,
+  // stack) and before the 25 constants: the legacy nsresult, the throw-site
+  // location, the null payload accessor, and the [Replaceable] stack. Every
+  // getter is enumerable and named "get <field>", exactly like the
+  // name/message/code loop above; data is [Exposed=Window].
+  struct ExceptionExtra { const char* name; bool (*getter)(JSContext*, unsigned, JS::Value*); };
+  const ExceptionExtra extras[] = {
+      {"result", ExceptionResultGetter}, {"filename", ExceptionFilenameGetter},
+      {"lineNumber", ExceptionLineGetter}, {"columnNumber", ExceptionColumnGetter},
+      {"data", ExceptionDataGetter}, {"stack", ExceptionStackGetter}};
+  for (const auto& extra : extras) {
+    if (extra.getter == ExceptionDataGetter && !window_exposed) continue;
+    const std::string getterName = std::string("get ") + extra.name;
+    JS::RootedFunction getter(cx, js::NewFunctionWithReserved(cx, extra.getter, 0, 0,
+                                                              getterName.c_str()));
+    if (!getter) return false;
+    JS::RootedObject get(cx, JS_GetFunctionObject(getter)), set(cx);
+    if (extra.getter == ExceptionStackGetter) {
+      JS::RootedFunction setter(cx, js::NewFunctionWithReserved(cx, ExceptionStackSetter, 1, 0,
+                                                                "set stack"));
+      if (!setter) return false;
+      set.set(JS_GetFunctionObject(setter));
+    }
+    if (!JS_DefineProperty(cx, prototype, extra.name, get, set, JSPROP_ENUMERATE)) return false;
+  }
   constexpr unsigned attrs = JSPROP_ENUMERATE | JSPROP_READONLY | JSPROP_PERMANENT;
   for (size_t index = 0; index < std::size(kExceptionNames); ++index) {
     JS::RootedValue value(cx, JS::Int32Value(int32_t(index + 1)));
     if (!JS_DefineProperty(cx, prototype, kExceptionNames[index].constant, value, attrs) ||
         !JS_DefineProperty(cx, constructor, kExceptionNames[index].constant, value, attrs)) return false;
-  }
-  // nsException's extra surface (the six members Firefox's DOMException
-  // prototype carries beside name/message/code): the throw-site location, the
-  // stack, the legacy nsresult, and the null payload accessor. Not enumerable,
-  // exactly like Firefox's prototype accessors.
-  struct ExceptionExtra { const char* name; bool (*native)(JSContext*, unsigned, JS::Value*); };
-  constexpr ExceptionExtra extras[] = {
-      {"filename", ExceptionFilenameGetter}, {"lineNumber", ExceptionLineGetter},
-      {"columnNumber", ExceptionColumnGetter}, {"stack", ExceptionStackGetter},
-      {"result", ExceptionResultGetter}, {"data", ExceptionDataGetter}};
-  for (const auto& extra : extras) {
-    JS::RootedFunction getter(cx, js::NewFunctionWithReserved(cx, extra.native, 0, 0, extra.name));
-    if (!getter) return false;
-    JS::RootedObject get(cx, JS_GetFunctionObject(getter)), set(cx);
-    if (!JS_DefineProperty(cx, prototype, extra.name, get, set, JSPROP_READONLY)) return false;
   }
   return true;
 }

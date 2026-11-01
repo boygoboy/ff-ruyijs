@@ -66,7 +66,8 @@ bool RunWorker(JSContext* cx, js::cli::OptionParser* options, Checkpoint checkpo
   JS::RootedObject eventTargetPrototype(cx, events.prototype());
   if (!eventTargetPrototype || !events.Attach(page)) return false;
   JS::RootedObject exceptionPrototype(cx), exceptionConstructor(cx);
-  if (!document_model::InstallExceptionSurface(cx, page, &exceptionPrototype, &exceptionConstructor) ||
+  if (!document_model::InstallExceptionSurface(cx, page, &exceptionPrototype, &exceptionConstructor,
+                                               false) ||
       !helpers.Interface("DOMException", exceptionPrototype) ||
       !helpers.Constructor("DOMException", exceptionConstructor)) return false;
   execution_scheduling::Realm scheduling(cx, page, checkpoint);
