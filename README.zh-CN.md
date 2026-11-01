@@ -56,7 +56,7 @@ python -m pip install ruyijs
 
 Windows 的 wheel 内置 SHA256 锁定的 SpiderMonkey + Necko 运行时（约 42 MB），安装后即可离线运行，无需下载浏览器，无外部依赖。
 
-**macOS arm64：** `macosx_26_0_arm64` wheel 通过 `libnecko_core.dylib` 和 `libnecko_quic.dylib` 直连 HTTPS 加载页面，二者链接同一份 Firefox 源码编出的 NSS。它不带 xpcshell，所以 macOS 上暂时不能用 `Context(proxy=...)`。Necko helper 运行在安装 ruyijs 的那个 Python 上，它需要的包是 macOS wheel 的依赖。细节和尚未完成的部分见 [docs/macos.zh-CN.md](docs/macos.zh-CN.md)。
+**macOS arm64：** `macosx_26_0_arm64` wheel 通过 `libnecko_core.dylib` 和 `libnecko_quic.dylib` 直连 HTTPS 加载页面，二者链接同一份 Firefox 源码编出的 NSS。它不带 xpcshell。没有 xpcshell 时，`Context(proxy=...)` 用 HTTP CONNECT 进入 `libnecko_core`。已经发布的 0.3.0 wheel 要等下一次发布才带上这条隧道。Necko helper 运行在安装 ruyijs 的那个 Python 上，它需要的包是 macOS wheel 的依赖。细节和尚未完成的部分见 [docs/macos.zh-CN.md](docs/macos.zh-CN.md)。
 
 **Linux x86_64：** `manylinux_2_39_x86_64` wheel 是原生 ELF 构建，由 [@Starktomy](https://github.com/Starktomy) 在 #5 贡献。文字用 fontconfig、FreeType 和 HarfBuzz 渲染机器上已安装的字体，WebCrypto 用 OpenSSL 3，Necko helper（NSS 3.131，HTTP/3 用 Neqo）自带 Python。见 [docs/linux.zh-CN.md](docs/linux.zh-CN.md)。
 
@@ -155,7 +155,7 @@ with Context() as context:
 
 ### 基于 Necko 的原生网络
 
-页面内 `fetch` 与 XHR 走真实 HTTP/1.1、2、3，并通过按上下文隔离的代理。用 `put_resource()` 自行提供响应即可离线复跑整条已捕获的流程。用 `net_log()` 查看每一次请求。macOS 上页面走直连 HTTPS，暂时不能用代理（`docs/macos.zh-CN.md`）。
+页面内 `fetch` 与 XHR 走真实 HTTP/1.1、2、3，并通过按上下文隔离的代理。用 `put_resource()` 自行提供响应即可离线复跑整条已捕获的流程。用 `net_log()` 查看每一次请求。macOS 上页面走直连 HTTPS。有 xpcshell 时代理仍走它；没有时走 HTTP CONNECT（`docs/macos.zh-CN.md`）。已经发布的 0.3.0 wheel 还没有这条隧道。
 
 ### 原生 TLS 指纹 —— 自由切换 Firefox 100 – 159
 
@@ -267,7 +267,7 @@ ruyiJS 在 **Windows x64**、**macOS arm64** 和 **Linux x86_64** 上提供 Java
 <details>
 <summary><b>支持 macOS 或 Linux 吗？</b></summary>
 
-支持。PyPI 上有 `macosx_26_0_arm64` wheel（macOS 26 及以上；暂不支持代理）和 `manylinux_2_39_x86_64` wheel（glibc 2.39 及以上）。见 [docs/macos.zh-CN.md](docs/macos.zh-CN.md) 和 [docs/linux.zh-CN.md](docs/linux.zh-CN.md)。
+支持。PyPI 上有 `macosx_26_0_arm64` wheel（macOS 26 及以上）和 `manylinux_2_39_x86_64` wheel（glibc 2.39 及以上）。已经发布的 0.3.0 macOS wheel 没有 xpcshell，也没有代理隧道；这次改动之后，没有 xpcshell 时源码走 HTTP CONNECT。见 [docs/macos.zh-CN.md](docs/macos.zh-CN.md) 和 [docs/linux.zh-CN.md](docs/linux.zh-CN.md)。
 
 JS 引擎是 Mozilla 官方的 **SpiderMonkey**，网络库是 Mozilla 官方的 **Necko**。两者都从官方 Firefox 源码编译，源码以 `firefox/` 子模块引用。
 </details>

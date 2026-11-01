@@ -3,6 +3,22 @@
 All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Added
+
+- macOS: `Context(proxy=...)` works in a wheel without xpcshell (#7 by @Facetomyself). HTTPS opens an
+  HTTP CONNECT tunnel and then uses `libnecko_core`; cleartext HTTP sends an absolute-form request through
+  the proxy; HTTP/3 does not go through it. With xpcshell present, the proxy stays on the Necko prefs as
+  on Windows. Proxy credentials in the URL are not sent on this path.
+
+### Fixed
+
+- macOS: an HTTPS server that negotiates no ALPN is read as HTTP/1.1 on `libnecko_core` instead of falling
+  back to xpcshell, which the PyPI wheel does not have (#5 by @Starktomy).
+- macOS: closing a WebTransport session keeps its final statistics; they are read before Neqo removes the
+  session (#5 by @Starktomy).
+
 ## [0.3.0] - 2026-11-01
 
 ### Added
