@@ -1,3 +1,4 @@
+#ifdef _WIN32
 // Additional metrics from the original shared font collection, without a cache.
 #include "web_geometry/font_backend.h"
 #include <cmath>
@@ -36,3 +37,5 @@ bool SystemFonts::SvgLengthMetrics(const FontInput& input, float* ex, float* ch,
   return true;
 }
 }
+
+#endif  // _WIN32

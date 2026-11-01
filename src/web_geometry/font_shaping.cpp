@@ -1,3 +1,4 @@
+#ifdef _WIN32
 /* This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
  * file, You can obtain one at http://mozilla.org/MPL/2.0/. */
@@ -76,12 +77,7 @@ bool ShapeFont(const SelectedFont& selected, const FontInput& input,
   // gfxDWriteFontEntry::CreateFontFace: a bold request on a face without bold
   // gets DirectWrite's bold simulation (gfx.font_rendering.directwrite.
   // bold_simulation = 1), whose wider advances the shaper reads from the face.
-  // The Core Text face has no DirectWrite simulation bits.
-#ifdef _WIN32
   const bool simulatedBold = !bitmap && (face->GetSimulations() & DWRITE_FONT_SIMULATIONS_BOLD);
-#else
-  const bool simulatedBold = false;
-#endif
   HbPtr<hb_font_t, hb_font_destroy> shaping(bitmap || simulatedBold ? hb_font_create_sub_font(font.get()) :
                                         hb_font_reference(font.get()), hb_font_destroy);
   BitmapAdvance bitmapAdvance{face, float(size), float(size / metrics.designUnitsPerEm)};
@@ -213,3 +209,5 @@ bool ShapeFont(const SelectedFont& selected, const FontInput& input,
   return true;
 }
 }
+
+#endif  // _WIN32

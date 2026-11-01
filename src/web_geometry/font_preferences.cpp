@@ -120,6 +120,10 @@ void SetBrowserLanguage(const std::string& language) {
   std::lock_guard<std::mutex> guard(g_language_lock);
   g_language = language;
 }
+std::string BrowserLanguage() {
+  std::lock_guard<std::mutex> guard(g_language_lock);
+  return g_language;
+}
 std::string DefaultGenericFamily() {
   const auto generic = Pref("font.default." + Group({}));
   return generic.empty() ? "serif" : generic;
