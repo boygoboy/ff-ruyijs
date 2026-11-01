@@ -21,14 +21,15 @@ bool Configure(Tls* t, const Profile& p, const char* host, const char* peer, boo
   SSLVersionRange range{SSL_LIBRARY_VERSION_TLS_1_2, SSL_LIBRARY_VERSION_TLS_1_3};
   if (SSL_VersionRangeSet(fd, &range) != SECSuccess || SSL_SetURL(fd, host) != SECSuccess ||
       SSL_SetSockPeerID(fd, peer) != SECSuccess || SSL_AuthCertificateHook(fd, VerifyPeer, t) != SECSuccess) return false;
-  // Match the recovered necko_core.dll option set. NSS defaults already leave
-  // OCSP stapling, delegated credentials, post-handshake auth and the TLS 1.3
-  // compatibility session id off. Turning those on adds ClientHello extensions
-  // the captured Firefox hellos do not carry.
+  // Firefox 159's ClientHello (ci/firefox159-hello.json, checked by
+  // ci/hello_check.py) carries status_request, delegated_credentials and a
+  // 32-byte legacy session id, and no post_handshake_auth; the Windows
+  // necko_core.dll sends the same.
   const std::pair<int, int> options[] = {{SSL_SECURITY, PR_TRUE}, {SSL_HANDSHAKE_AS_CLIENT, PR_TRUE},
     {SSL_ENABLE_SESSION_TICKETS, PR_TRUE}, {SSL_ENABLE_EXTENDED_MASTER_SECRET, PR_TRUE},
-    {SSL_ENABLE_SIGNED_CERT_TIMESTAMPS, p.signed_cert_timestamps},
-    {SSL_ENABLE_ALPN, PR_TRUE},
+    {SSL_ENABLE_OCSP_STAPLING, PR_TRUE}, {SSL_ENABLE_SIGNED_CERT_TIMESTAMPS, p.signed_cert_timestamps},
+    {SSL_ENABLE_ALPN, PR_TRUE}, {SSL_ENABLE_TLS13_COMPAT_MODE, PR_TRUE},
+    {SSL_ENABLE_DELEGATED_CREDENTIALS, PR_TRUE}, {SSL_ENABLE_POST_HANDSHAKE_AUTH, PR_FALSE},
     {SSL_ENABLE_RENEGOTIATION, SSL_RENEGOTIATE_REQUIRES_XTN}};
   for (auto [option, value] : options) if (SSL_OptionSet(fd, option, value) != SECSuccess) return false;
   for (unsigned i = 0; i < SSL_NumImplementedCiphers; ++i)
@@ -55,7 +56,9 @@ bool Configure(Tls* t, const Profile& p, const char* host, const char* peer, boo
     auto algorithm = algorithms[id - 1];
     if (SSL_SetCertificateCompressionAlgorithm(fd, algorithm) != SECSuccess) return false;
   }
-  const auto* protocols = reinterpret_cast<const uint8_t*>(h2 ? "\2h2\10http/1.1" : "\10http/1.1");
+  // NSS moves the first protocol (the NPN fallback) to the end of the ALPN
+  // list, so http/1.1 goes first here to send h2, http/1.1 as Firefox does.
+  const auto* protocols = reinterpret_cast<const uint8_t*>(h2 ? "\10http/1.1\2h2" : "\10http/1.1");
   return SSL_SetNextProtoNego(fd, protocols, h2 ? 12 : 9) == SECSuccess && SSL_ResetHandshake(fd, PR_FALSE) == SECSuccess;
 }
 }
