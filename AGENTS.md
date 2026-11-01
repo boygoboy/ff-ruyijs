@@ -44,10 +44,12 @@ assets/                 README images and architecture diagrams
 | `Context.put_resource(url, body)` | Serve a response offline |
 | `JSError` | JavaScript exception with name, message, stack |
 | `JSObject` / `JSFunction` | Live handles to JS objects callable from Python |
+| `Engine` / `engine.context(...)` / `use_engine(engine)` | Many independent Contexts as sessions (threads) of one shared process |
 
 ## Conventions
 
-- Each `Context` is an **isolated process** — no shared state between contexts.
+- Each `Context` is an **isolated process** — no shared state between contexts — unless it is a session of an
+  `Engine`, which runs many Contexts in one process, each on its own thread with its own state (docs/engine.md).
 - Examples are run via `python -m ruyijs.examples <name>`.
 - All examples support `--proxy`, `--direct`, `--output`, `--help`.
 - Every wheel bundles its native runtime, built from the official Firefox 159.0 source in the `firefox/` submodule; no browser download is needed. The macOS wheel has no xpcshell. A proxy uses that binary when it is present, and an HTTP CONNECT tunnel into `libnecko_core` when it is not (`docs/macos.md`). The published 0.3.0 wheel predates the tunnel.

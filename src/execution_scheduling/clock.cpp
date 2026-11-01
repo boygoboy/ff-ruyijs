@@ -1,13 +1,18 @@
 #include "execution_scheduling/state.h"
 #include "execution_scheduling/timer_precision.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <mutex>
 #include <thread>
 #include "js/Realm.h"
 #include "js/RealmOptions.h"
 
 namespace ruyijs::execution_scheduling {
-static JS::ReduceMicrosecondTimePrecisionCallback previousClock = nullptr;
+// The precision callback is process-wide (it takes no context), and a shared
+// engine's sessions bind and unbind it from their own threads.
+static std::mutex clockLock;
+static std::atomic<JS::ReduceMicrosecondTimePrecisionCallback> previousClock{nullptr};
 static unsigned bindings = 0;
 // One clock drives every realm the scheduling surface was installed into:
 // the owner's own page and each iframe realm it installed timers/performance
@@ -29,7 +34,10 @@ static double CurrentTime(double usec, JS::RTPCallerTypeToken token, JSContext* 
     if (clock.logical) return std::trunc(clock.epoch + clock.now) * 1000;
     break;
   }
-  if (token.value == 1) return previousClock ? previousClock(usec, token, cx) : usec;
+  if (token.value == 1) {
+    const auto previous = previousClock.load();
+    return previous ? previous(usec, token, cx) : usec;
+  }
   using namespace domain::execution_scheduling;
   return ReduceTimePrecision(ProcessTimerSecret(), usec, TimeScale::MicroSeconds,
                              kTimerResolutionUSec, 0);
@@ -37,17 +45,21 @@ static double CurrentTime(double usec, JS::RTPCallerTypeToken token, JSContext* 
 void State::BindClock() {
   JS::SetRealmReduceTimerPrecisionCallerType(JS::GetCurrentRealmOrNull(cx), {1});
   JS::SetRealmReduceTimerPrecisionCallerType(JS::GetObjectRealmOrNull(page), {0});
-  if (!bindings++) {
-    previousClock = JS::GetReduceMicrosecondTimePrecisionCallback();
-    JS::SetReduceMicrosecondTimePrecisionCallback(CurrentTime);
+  {
+    std::lock_guard<std::mutex> guard(clockLock);
+    if (!bindings++) {
+      previousClock = JS::GetReduceMicrosecondTimePrecisionCallback();
+      JS::SetReduceMicrosecondTimePrecisionCallback(CurrentTime);
+    }
   }
   clockBound = true;
 }
 void State::UnbindClock() {
   if (!clockBound) return;
   clockBound = false;
+  std::lock_guard<std::mutex> guard(clockLock);
   if (!--bindings) {
-    JS::SetReduceMicrosecondTimePrecisionCallback(previousClock);
+    JS::SetReduceMicrosecondTimePrecisionCallback(previousClock.load());
     previousClock = nullptr;
   }
 }

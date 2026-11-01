@@ -1,4 +1,5 @@
 #include "resource_network/model_webtransport_internal.h"
+#include "runtime/transport_partition.h"
 #include <limits>
 
 namespace ruyijs::resource_network {
@@ -8,7 +9,8 @@ bool WebTransportSession::Begin(const WebTransportOptions& options,std::string* 
   try {
     auto& state=*impl_;std::lock_guard<std::mutex> guard(state.lock);
     if(state.started){*error="WebTransport session already started";return false;}
-    state.started=true;state.worker=std::thread([&state,options]{state.Run(options);});return true;
+    // The worker starts its helper in the owning session's transport partition.
+    state.started=true;state.worker=std::thread([&state,options,partition=CurrentPartition()]{PartitionScope scope(partition);state.Run(options);});return true;
   }catch(const std::exception&){try{*error="WebTransport worker allocation failed";}catch(...){}return false;}
 }
 bool WebTransportSession::Submit(const WebTransportCommand& command,uint64_t* ticket,std::string* error) noexcept {

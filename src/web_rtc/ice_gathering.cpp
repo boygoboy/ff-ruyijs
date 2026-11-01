@@ -20,7 +20,7 @@
 namespace ruyijs::web_rtc {
 namespace {
 struct Line { std::string text, mid; int32_t index; };
-std::mt19937_64& Random() { static std::mt19937_64 random{std::random_device{}()}; return random; }
+std::mt19937_64& Random() { thread_local std::mt19937_64 random{std::random_device{}()}; return random; }
 std::string Uuid() {
   const uint64_t a = Random()(), b = Random()();
   char text[40];

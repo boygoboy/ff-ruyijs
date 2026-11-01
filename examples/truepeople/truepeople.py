@@ -199,7 +199,7 @@ def run(args, report):
             report["stage"] = "incomplete"
 
 
-def main():
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--url", default=URL)
@@ -211,7 +211,7 @@ def main():
     parser.add_argument("--output", type=Path, help="把 JSON 结果同时写入此文件")
     parser.add_argument("--check-exit", action="store_true",
                         help="只做出口预检（封锁/质询/放行），不跑全流程")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if args.check_exit:
         proxy = None if args.direct else (args.proxy or auto_proxy())
         print(f"出口 {proxy or 'direct'}: {check_exit(proxy, args.url)}")

@@ -169,6 +169,7 @@ jobs:
           wheel-test/bin/python "$GITHUB_WORKSPACE/ci/network_smoke.py"
           wheel-test/bin/python "$GITHUB_WORKSPACE/ci/proxy_smoke.py"
           wheel-test/bin/python "$GITHUB_WORKSPACE/ci/hello_check.py"
+          wheel-test/bin/python "$GITHUB_WORKSPACE/ci/engine_check.py" --network
 
       - name: Upload the wheel
         if: always()

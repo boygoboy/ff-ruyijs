@@ -44,7 +44,7 @@ struct FacePool {
   }
 };
 IDWriteFontFace* PoolFace(CTFontRef font) {
-  static FacePool pool;
+  thread_local FacePool pool;  // per session thread; no lock needed
   return pool.Face(font);
 }
 }  // namespace

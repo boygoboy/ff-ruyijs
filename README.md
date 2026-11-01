@@ -187,6 +187,20 @@ with Context() as context:
     print(context.eval("add(20, 22)"))  # 42
 ```
 
+### Many independent sessions in one process
+
+A `Context` starts its own process. An `Engine` runs many Contexts as sessions of one process instead, each on its own thread with its own heap, page, clock, cookies, storage, proxy and TLS profile, in parallel. `prewarm` and `network=` trim the Necko helper processes, which are most of a Context's memory: four sessions measured 219 MiB in 5 processes against 385 MiB in 12 for four Contexts, and 151 MiB in 3 when they share one network ([docs/engine.md](docs/engine.md)).
+
+```python
+from ruyijs import Context, Engine, use_engine
+
+with Engine() as engine:
+    a = engine.context(proxy="http://127.0.0.1:7890")
+    b = engine.context(tls="120")
+    with use_engine(engine):
+        c = Context()          # code that creates its own Contexts joins the engine too
+```
+
 ### Deterministic clock
 
 Drive timers with a logical clock for perfectly reproducible runs, or use the system clock for live work. The host advances time explicitly.
@@ -235,6 +249,7 @@ python -m ruyijs.examples                      # list every example and its inst
 python -m ruyijs.examples akamai               # Akamai Bot Manager 3.x
 python -m ruyijs.examples datadome             # DataDome interstitial device-check
 python -m ruyijs.examples creepjs              # CreepJS fingerprint audit
+python -m ruyijs.examples --shared akamai datadome creepjs   # several at once, one shared engine
 ```
 
 Every example supports `--direct` (direct connection) and `--proxy http://127.0.0.1:7890`. Add `--help` after a name for all options, and `--output result.json` to save results. Each example directory ships its own README.
@@ -249,6 +264,7 @@ Every example supports `--direct` (direct connection) and `--proxy http://127.0.
 | **`configure_clock` / `advance` / `tick`** | Logical vs. system clock, drive the event loop |
 | **`JSError` / `console_log` / `net_log`** | Errors as exceptions, console and network records |
 | **`JSObject` / `JSFunction` / `get_runtime_path`** | Live JS handles, bundled-runtime path |
+| **`Engine` / `engine.context` / `use_engine`** | Many independent Contexts as sessions of one process |
 
 ## 📏 Scope & limitations
 

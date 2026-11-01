@@ -1,7 +1,8 @@
 // The engine's dynamic-code hook for the Content Security owner (docs/owners/
-// CONTENT_SECURITY.md). One JSContext per process: the current
-// JSSecurityCallbacks are copied once (keeping Trusted Types' codeForEvalGets
-// and the shell's subsumes) and contentSecurityPolicyAllows is set; it finds
+// CONTENT_SECURITY.md). One JSContext per thread (a shared engine runs each
+// session on its own): the thread's current JSSecurityCallbacks are copied once
+// (keeping Trusted Types' codeForEvalGets and the shell's subsumes) and
+// contentSecurityPolicyAllows is set; it finds
 // the owner of the evaluating realm and asks its policies. A realm without an
 // owner or without policies falls through to the previous checker.
 #include "web_security/realm.h"
@@ -14,10 +15,10 @@
 namespace ruyijs::web_security {
 namespace {
 std::vector<std::pair<JS::Realm*, Realm*>>& Registry() {
-  static std::vector<std::pair<JS::Realm*, Realm*>> registry;
+  thread_local std::vector<std::pair<JS::Realm*, Realm*>> registry;
   return registry;
 }
-JSCSPEvalChecker previous = nullptr;
+thread_local JSCSPEvalChecker previous = nullptr;
 bool Allows(JSContext* cx, JS::RuntimeCode kind, JS::HandleString code, JS::CompilationType type,
             JS::Handle<JS::StackGCVector<JSString*>> parameters, JS::HandleString body,
             JS::Handle<JS::StackGCVector<JS::Value>> parameterArgs, JS::HandleValue bodyArg,
@@ -34,8 +35,8 @@ bool Allows(JSContext* cx, JS::RuntimeCode kind, JS::HandleString code, JS::Comp
   return true;
 }
 bool Install(JSContext* cx) {
-  static JSSecurityCallbacks callbacks;
-  static bool installed = false;
+  thread_local JSSecurityCallbacks callbacks;
+  thread_local bool installed = false;
   if (installed) return true;
   if (const JSSecurityCallbacks* current = JS_GetSecurityCallbacks(cx)) callbacks = *current;
   previous = callbacks.contentSecurityPolicyAllows;

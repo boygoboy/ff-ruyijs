@@ -43,7 +43,7 @@ std::mutex g_language_lock;
 // The language of untagged content: nsLanguageAtomService::GetLocaleLanguage,
 // the OS regional-preferences locale (not navigator.language / Accept-Language);
 // an explicit override when a profile emulates another OS locale.
-std::string g_language;
+thread_local std::string g_language;
 std::string Group(const std::string& language) {
   auto value = language;
   if (value.empty()) {
@@ -103,7 +103,7 @@ std::wstring MenuFont() {
 }
 }
 namespace {
-std::atomic<double> g_device_pixel_ratio{1.0};
+thread_local std::atomic<double> g_device_pixel_ratio{1.0};
 }
 void SetDevicePixelRatio(double ratio) {
   if (std::isfinite(ratio) && ratio > 0) g_device_pixel_ratio = ratio;

@@ -10,10 +10,11 @@ namespace ruyijs::web_trusted_types {
 namespace {
 // The shell installs its JSSecurityCallbacks before any runtime code runs. They
 // are copied once with codeForEvalGets added, keeping its CSP check and
-// subsumes hook; one process has one JSContext.
+// subsumes hook; one thread has one JSContext (a shared engine runs each
+// session on its own thread).
 bool InstallEvalHook(JSContext* cx) {
-  static JSSecurityCallbacks callbacks;
-  static bool installed = false;
+  thread_local JSSecurityCallbacks callbacks;
+  thread_local bool installed = false;
   if (installed) return true;
   if (const JSSecurityCallbacks* current = JS_GetSecurityCallbacks(cx)) callbacks = *current;
   callbacks.codeForEvalGets = CodeForEval;

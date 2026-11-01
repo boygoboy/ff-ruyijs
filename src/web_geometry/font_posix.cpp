@@ -40,9 +40,10 @@ struct FontCollection {
   ~FontCollection() { for (auto [id, face] : faces) hb_face_destroy(face); }
 };
 namespace {
-std::atomic<double> pixelRatio{1};
+// Per session: a shared engine runs each Context on its own thread.
+thread_local std::atomic<double> pixelRatio{1};
 std::mutex languageLock;
-std::string browserLanguage = "en-US";
+thread_local std::string browserLanguage = "en-US";
 std::string FontLanguage(const FontInput& input) {
   if (!input.language.empty()) return input.language;
   { std::lock_guard<std::mutex> lock(languageLock); if (!browserLanguage.empty()) return browserLanguage; }

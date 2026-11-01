@@ -24,8 +24,10 @@ struct Config {
   std::map<std::string, std::string> generics;
 };
 std::mutex g_lock;
-Config g_config;
-uint64_t g_generation = 0;
+// Per session: a shared engine runs each Context on its own thread; the font
+// collections and text caches that follow the generation are per session too.
+thread_local Config g_config;
+thread_local uint64_t g_generation = 0;
 
 std::wstring Lower(const std::wstring& text) {
   std::wstring out = text;

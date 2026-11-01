@@ -120,14 +120,15 @@ std::string PngMetadataHex(const std::string& key, const std::string& content) {
 }
 
 namespace {
-// One Context is one runtime process, so the configured fingerprint is
-// process-scoped; every realm of the Context reads the same value.
+// One Context is one thread (its own process, or a session of a shared
+// engine), so the configured fingerprint is thread-scoped; every realm of the
+// Context reads the same value.
 domain::canvas::FingerprintConfig& Configured() {
-  static domain::canvas::FingerprintConfig config;
+  thread_local domain::canvas::FingerprintConfig config;
   return config;
 }
 std::string& ConfiguredKey() {
-  static std::string key;
+  thread_local std::string key;
   return key;
 }
 }  // namespace

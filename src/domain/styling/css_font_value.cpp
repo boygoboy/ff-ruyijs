@@ -7,7 +7,8 @@
 #include <cmath>
 namespace ruyijs::domain::styling {
 namespace {
-std::string& InitialFamily() { static std::string family = "serif"; return family; }
+// Per session: a shared engine runs each Context on its own thread.
+std::string& InitialFamily() { thread_local std::string family = "serif"; return family; }
 std::vector<CssDeclarationValue>& Defaults();
 }
 void CssSetInitialFontFamily(std::string generic) {
@@ -19,7 +20,7 @@ const std::string& CssInitialFontFamily() { return InitialFamily(); }
 const std::vector<CssDeclarationValue>& CssFontDefaults() { return Defaults(); }
 namespace {
 std::vector<CssDeclarationValue>& Defaults() {
-  static std::vector<CssDeclarationValue> values = {
+  thread_local std::vector<CssDeclarationValue> values = {
     {"font-style", "normal"}, {"font-variant-caps", "normal"},
     {"font-weight", "normal"}, {"font-stretch", "normal"},
     {"font-size", "medium"}, {"line-height", "normal"}, {"font-family", CssInitialFontFamily()},

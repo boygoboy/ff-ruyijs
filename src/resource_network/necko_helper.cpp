@@ -89,15 +89,6 @@ bool RepoRoot(std::string* root) {
   *root = std::move(path);
   return true;
 }
-void CloexecOthers(int keepIn, int keepOut) {
-  int limit = int(sysconf(_SC_OPEN_MAX));
-  if (limit < 0 || limit > 4096) limit = 4096;
-  for (int fd = STDERR_FILENO + 1; fd < limit; ++fd) {
-    if (fd == keepIn || fd == keepOut) continue;
-    const int flags = fcntl(fd, F_GETFD);
-    if (flags >= 0 && (flags & FD_CLOEXEC) == 0) fcntl(fd, F_SETFD, flags | FD_CLOEXEC);
-  }
-}
 }
 bool NeckoPythonPath(std::wstring* python) {
   std::string chosen;
@@ -138,7 +129,7 @@ void NeckoHelper::KillLocked() {
   pid_ = 0;
 }
 bool NeckoHelper::Start(const std::wstring& python, NeckoPipe& input, NeckoPipe& output,
-                        const wchar_t* mode) {
+                        const wchar_t* mode, const TransportPartition* partition) {
   std::lock_guard<std::mutex> guard(lock_);
   if (pid_ > 0) return false;
   const int in = input.Child();
@@ -165,7 +156,6 @@ bool NeckoHelper::Start(const std::wstring& python, NeckoPipe& input, NeckoPipe&
   for (std::string& arg : args) argv.push_back(arg.data());
   argv.push_back(nullptr);
 
-  CloexecOthers(in, out);
   posix_spawn_file_actions_t actions;
   if (posix_spawn_file_actions_init(&actions) != 0) return false;
   // stderr stays inherited so a failed import is visible on the shell log.
@@ -176,16 +166,36 @@ bool NeckoHelper::Start(const std::wstring& python, NeckoPipe& input, NeckoPipe&
     armed = armed && posix_spawn_file_actions_addclose(&actions, in) == 0;
   if (out > STDERR_FILENO && out != in)
     armed = armed && posix_spawn_file_actions_addclose(&actions, out) == 0;
+  // Every other descriptor closes in the child as it starts: another session's
+  // thread may be opening pipes or sockets at this moment, and marking them
+  // close-on-exec beforehand would race it.
+#if defined(__linux__)
+  armed = armed && posix_spawn_file_actions_addclosefrom_np(&actions, STDERR_FILENO + 1) == 0;
+#else
+  armed = armed && posix_spawn_file_actions_addinherit_np(&actions, STDERR_FILENO) == 0;
+#endif
   posix_spawnattr_t attr;
   if (posix_spawnattr_init(&attr) != 0) {
     posix_spawn_file_actions_destroy(&actions);
     return false;
   }
+#if defined(__linux__)
   armed = armed && posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP) == 0 &&
+#else
+  armed = armed && posix_spawnattr_setflags(&attr, POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT) == 0 &&
+#endif
       posix_spawnattr_setpgroup(&attr, 0) == 0;
+  // A session's partition replaces the inherited proxy / TLS release.
+  std::vector<std::string> environment;
+  std::vector<char*> envp;
+  if (partition && Overrides(*partition)) {
+    environment = EnvironmentStrings(*partition);
+    for (std::string& entry : environment) envp.push_back(entry.data());
+    envp.push_back(nullptr);
+  }
   pid_t child = 0;
   const int spawned = armed ? posix_spawn(&child, program.c_str(), &actions, &attr,
-                                           argv.data(), environ) : -1;
+                                           argv.data(), envp.empty() ? environ : envp.data()) : -1;
   posix_spawnattr_destroy(&attr);
   posix_spawn_file_actions_destroy(&actions);
   if (spawned != 0 || child <= 0) return false;

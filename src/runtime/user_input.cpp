@@ -26,7 +26,7 @@ using user_input::Init;
 // The active window's mozInnerScreenX/Y for the current host action: a real
 // pointer's screenX/Y is its client position plus this origin (Firefox trace
 // 20261021-160155: screenX - clientX = mozInnerScreenX = 30).
-struct { double x = 0, y = 0; } gScreen;
+thread_local struct { double x = 0, y = 0; } gScreen;
 bool Pointer(JSContext* cx, JS::HandleObject target, const char* type, double x, double y,
              int button, int buttons, bool bubbles, SchedulingControl& clock, bool* allowed = nullptr) {
   Init init(cx);

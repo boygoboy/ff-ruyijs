@@ -106,7 +106,7 @@ public:
 
 private:
     static uint64_t next_seq() {
-        static uint64_t counter = 0;
+        thread_local uint64_t counter = 0;  // per session thread
         return ++counter;
     }
 

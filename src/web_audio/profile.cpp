@@ -14,7 +14,8 @@
 namespace ruyijs::web_audio {
 namespace {
 std::mutex gLock;
-Profile gProfile;
+// Per session: a shared engine runs each Context on its own thread.
+thread_local Profile gProfile;
 
 bool Read(JSContext* cx, JS::HandleObject group, const char* name, double low,
           double high, bool integer, bool* present, double* out) {

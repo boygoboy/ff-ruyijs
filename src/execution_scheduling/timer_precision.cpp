@@ -29,12 +29,15 @@ bool Random(void* out, size_t size) {
 }
 }  // namespace
 const domain::execution_scheduling::TimerSecret& ProcessTimerSecret() {
-  static domain::execution_scheduling::TimerSecret secret;
-  static std::once_flag once;
-  std::call_once(once, [] {
+  // One secret per Context, as with a process per Context: a shared engine
+  // runs each session on its own thread.
+  thread_local domain::execution_scheduling::TimerSecret secret;
+  thread_local bool ready = false;
+  if (!ready) {
     if (!Random(secret.bytes, sizeof secret.bytes))
       for (auto& byte : secret.bytes) byte = uint8_t(std::rand());
-  });
+    ready = true;
+  }
   return secret;
 }
 int64_t NewTimelineSeed() {

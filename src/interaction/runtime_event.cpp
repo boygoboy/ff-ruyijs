@@ -19,7 +19,8 @@
 
 namespace ruyijs::interaction {
 namespace {
-int gHandlingUserInput = 0;
+// Per session: a shared engine runs each Context on its own thread.
+thread_local int gHandlingUserInput = 0;
 bool UserInteraction(const char* type) {
   for (const char* name : {"mousedown", "mouseup", "pointerdown", "pointerup", "click", "auxclick", "dblclick",
                            "contextmenu", "keydown", "keyup", "keypress", "touchstart", "touchend"})

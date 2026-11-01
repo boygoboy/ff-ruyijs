@@ -13,7 +13,9 @@
 
 namespace ruyijs::browser_environment {
 namespace {
-std::vector<State*>& Windows() { static std::vector<State*> list; return list; }
+// The windows of one Context, which runs on one thread (a shared engine runs
+// each session on its own).
+std::vector<State*>& Windows() { thread_local std::vector<State*> list; return list; }
 bool Forward(JSContext* cx, unsigned argc, JS::Value* vp) {
   auto args = JS::CallArgsFromVp(argc, vp);
   JS::RootedObject callee(cx, &args.callee());

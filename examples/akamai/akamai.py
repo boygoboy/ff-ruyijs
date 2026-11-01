@@ -491,7 +491,7 @@ def run(args, report):
             pass
 
 
-def main():
+def main(argv=None):
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
 
@@ -506,7 +506,7 @@ def main():
     px = parser.add_mutually_exclusive_group()
     px.add_argument("--proxy", help="HTTP(S) proxy")
     px.add_argument("--direct", action="store_true", help="Direct (no proxy)")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     proxy = None if args.direct else (args.proxy or auto_proxy())
     report = {

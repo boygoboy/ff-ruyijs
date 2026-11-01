@@ -11,7 +11,44 @@ namespace js::cli { class OptionParser; }
 namespace ruyijs {
 using EvalOptions = ruyijs::domain::runtime_context::EvalOptions;
 using Checkpoint = void (*)(JSContext*);
-bool Run(JSContext* cx, js::cli::OptionParser* options, Checkpoint checkpoint);
+// One Context session: the private pipe it serves and how it runs. A
+// single-session process fills it from --ruyijs-rpc/--ruyijs-mode/
+// --ruyijs-environment; a shared engine fills it from each `open` request
+// (runtime/engine.cpp).
+struct SessionOptions {
+  std::string rpc;
+  bool debug = false;
+  std::string environment;
+  // Necko helpers started in the background for the session's partition.
+  unsigned prewarm = 2;
+  // A shared engine's session: the native stack a single-session process
+  // leaves to RunSession (bytes below its entry), so recursion depth matches.
+  size_t stack = 0;
+};
+struct SessionThreads;
+// Every product mode enters here from the shell: a single session
+// (--ruyijs-rpc, --ruyijs-runtime) or a shared engine (--ruyijs-host).
+bool Run(JSContext* cx, js::cli::OptionParser* options, Checkpoint checkpoint,
+         const SessionThreads& threads);
+// The session itself: builds the page and its owners, then serves `rpc` until
+// the pipe closes. `cli` is the shell's parser for the -e/-f paths of a
+// single-session process and nullptr for a session of a shared engine.
+bool RunSession(JSContext* cx, const SessionOptions& session, js::cli::OptionParser* cli,
+                Checkpoint checkpoint);
+// Shared engine (--ruyijs-host PIPE): one process serves several independent
+// sessions, each on its own thread with its own JSContext. The shell supplies
+// how a session thread is created, because the context setup lives there.
+struct SessionRecord;
+struct SessionThreads {
+  // Starts `record` on a new thread; nullptr when the thread cannot start.
+  void* (*start)(JSContext* parent, SessionRecord* record);
+  // Waits for a thread `start` returned and releases it.
+  void (*join)(void* thread);
+};
+bool Host(JSContext* cx, js::cli::OptionParser* options, Checkpoint checkpoint,
+          const SessionThreads& threads);
+// The body of a session thread once the shell has set up its JSContext.
+void RunHostedSession(JSContext* cx, SessionRecord* record, Checkpoint checkpoint);
 // Worker process mode: the page Context spawned this process and connected
 // the named pipe; it installs the restricted worker realm and serves the pipe.
 bool RunWorker(JSContext* cx, js::cli::OptionParser* options, Checkpoint checkpoint);

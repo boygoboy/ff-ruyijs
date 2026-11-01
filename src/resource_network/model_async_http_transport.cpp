@@ -1,4 +1,5 @@
 #include "resource_network/async_http_internal.h"
+#include "runtime/transport_partition.h"
 #include "resource_network/necko_http.h"
 #include <new>
 #include <system_error>
@@ -30,9 +31,11 @@ void AsyncHttp::Launch(uint64_t id) noexcept {
   const HttpExchange& exchange = job.exchange;
   try {
     // Captures are copied while still on the original owning thread.
+    // The transport thread leases helpers of the owning session's partition.
     auto task = [inbox = inbox_, outcome = job.outcome, method = exchange.method(),
                  url = exchange.url(), headers = exchange.headers(), body = exchange.body(),
-                 remaining = exchange.remaining()]() noexcept {
+                 remaining = exchange.remaining(), partition = CurrentPartition()]() noexcept {
+      PartitionScope scope(partition);
       outcome->transport = true;
       outcome->result = {};
       try {

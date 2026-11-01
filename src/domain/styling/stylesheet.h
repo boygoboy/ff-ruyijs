@@ -818,7 +818,8 @@ private:
     }
 
     static const std::map<std::string, std::string>& InitialValues() {
-        static const std::map<std::string, std::string> table = [] {
+        // Per session (thread): initial_values() rewrites font-family in place.
+        thread_local std::map<std::string, std::string> table = [] {
           std::map<std::string, std::string> values = {
             {"display", "inline"}, {"color", "rgb(0, 0, 0)"},
             {"background-color", "rgba(0, 0, 0, 0)"}, {"background-image", "none"},

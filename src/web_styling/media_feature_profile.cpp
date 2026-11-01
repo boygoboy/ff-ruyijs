@@ -8,7 +8,8 @@
 namespace ruyijs::web_styling {
 namespace {
 std::mutex& Lock() { static std::mutex lock; return lock; }
-std::map<std::string, std::string>& Store() { static std::map<std::string, std::string> store; return store; }
+// Per session: a shared engine runs each Context on its own thread.
+std::map<std::string, std::string>& Store() { thread_local std::map<std::string, std::string> store; return store; }
 // camelCase profile field -> CSS media feature name.
 struct Field { const char* field; const char* feature; };
 constexpr Field kFields[] = {

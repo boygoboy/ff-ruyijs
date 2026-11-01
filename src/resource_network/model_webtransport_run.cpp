@@ -1,4 +1,5 @@
 #include "resource_network/model_webtransport_internal.h"
+#include "runtime/transport_partition.h"
 #include <chrono>
 
 namespace ruyijs::resource_network {
@@ -23,7 +24,7 @@ void WebTransportSession::Impl::Run(WebTransportOptions options) noexcept {
     std::wstring python;
     if(stopping)return;
     if(!NeckoPythonPath(&python)||!input.Open(true)||!output.Open(false)||
-        !helper.Start(python,input,output,L"--webtransport"))throw std::runtime_error("WebTransport helper startup failed");
+        !helper.Start(python,input,output,L"--webtransport",CurrentPartition().get()))throw std::runtime_error("WebTransport helper startup failed");
     input.CloseChild();output.CloseChild();if(stopping){helper.Cancel();return;}
     std::vector<WebTransportEvent> completed;
     if(!webtransport_wire::Exchange(input,output,webtransport_wire::Begin(options),&completed))

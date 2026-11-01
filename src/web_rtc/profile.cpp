@@ -14,7 +14,8 @@
 
 namespace ruyijs::web_rtc {
 namespace {
-Profile& Stored() { static Profile profile; return profile; }
+// Per session: a shared engine runs each Context on its own thread.
+Profile& Stored() { thread_local Profile profile; return profile; }
 
 bool Fail(JSContext* cx, const std::string& name, const char* what) {
   return WebKit::Fail(cx, ("rtc." + name + " " + what).c_str());

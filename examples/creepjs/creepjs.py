@@ -96,7 +96,7 @@ def run(args, report):
         "stable fingerprint" in report["passed"] and set(report["failed"]) <= KNOWN_GAPS
 
 
-def main():
+def main(argv=None):
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -105,7 +105,7 @@ def main():
     proxy.add_argument("--direct", action="store_true", help="直接连接")
     parser.add_argument("--timeout", type=float, default=60, help="总期限，秒")
     parser.add_argument("--output", type=Path, help="将 JSON 结果同时写入此文件")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     if not math.isfinite(args.timeout) or args.timeout <= 0:
         parser.error("--timeout 必须是正有限数")
     report = {"ok": False, "transport": "ruyijs-page+necko-fetch", "proxy": None if args.direct else (args.proxy or auto_proxy()), "fpId": None,

@@ -139,9 +139,10 @@ private:
     uint64_t parent_id_ = 0;
     std::vector<EventListener> listeners_;
 
-    /// Global listener ID generator (ensures uniqueness across all targets)
+    /// Listener ID generator, unique across all targets of one Context (one
+    /// thread; a shared engine runs each session on its own)
     static ListenerId next_global_listener_id() {
-        static ListenerId counter = 0;
+        thread_local ListenerId counter = 0;
         return ++counter;
     }
 };

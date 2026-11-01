@@ -1,4 +1,5 @@
 #include "resource_network/page_http.h"
+#include "runtime/transport_partition.h"
 #include "resource_network/http_exchange.h"
 #include "resource_network/necko_http.h"
 #include "resource_network/model_storage.h"
@@ -26,7 +27,8 @@ bool Failure(HttpResult* result, const char* message) {
   result->error = message;
   return false;
 }
-// Fetch "CORS-preflight cache": one process is one Context, so one cache.
+// Fetch "CORS-preflight cache": one per Context, keyed by its transport
+// partition (a shared engine's sessions share the process, not the cache).
 std::mutex& PreflightLock() { static std::mutex lock; return lock; }
 std::map<std::string, domain::CorsPreflightEntry>& PreflightCache() {
   static std::map<std::string, domain::CorsPreflightEntry> cache; return cache;
@@ -35,7 +37,7 @@ double PreflightNow() {
   return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
 }
 std::string PreflightKey(const std::string& origin, const std::string& url, bool credentials) {
-  return origin + '\n' + url + '\n' + (credentials ? '1' : '0');
+  return CurrentPartition()->key + '\n' + origin + '\n' + url + '\n' + (credentials ? '1' : '0');
 }
 bool IsInitiator(const char* initiator, const char* name) { return std::string_view(initiator) == name; }
 }

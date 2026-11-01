@@ -187,6 +187,20 @@ with Context() as context:
     print(context.eval("add(20, 22)"))  # 42
 ```
 
+### 多个独立会话共用一个进程
+
+`Context` 会启动自己的进程；`Engine` 则把多个 Context 作为同一进程中的会话并行运行，每个会话有自己的线程、堆、页面、时钟、Cookie、存储、代理和 TLS 配置。`prewarm` 和 `network=` 可以精简占 Context 大部分内存的 Necko 辅助进程：实测四个会话 5 个进程、219 MiB，四个 Context 为 12 个进程、385 MiB；四个会话共用一个 network 时为 3 个进程、151 MiB（[docs/engine.zh-CN.md](docs/engine.zh-CN.md)）。
+
+```python
+from ruyijs import Context, Engine, use_engine
+
+with Engine() as engine:
+    a = engine.context(proxy="http://127.0.0.1:7890")
+    b = engine.context(tls="120")
+    with use_engine(engine):
+        c = Context()          # 自己创建 Context 的代码同样加入该引擎
+```
+
 ### 确定性时钟
 
 用逻辑时钟驱动定时器以获得完全可复现的运行，或用系统时钟进行实时作业。时间由宿主显式推进。
@@ -235,6 +249,7 @@ python -m ruyijs.examples                      # 列出全部示例及其安装�
 python -m ruyijs.examples akamai               # Akamai Bot Manager 3.x
 python -m ruyijs.examples datadome             # DataDome interstitial device-check
 python -m ruyijs.examples creepjs              # CreepJS 指纹审计
+python -m ruyijs.examples --shared akamai datadome creepjs   # 多个示例同时运行，共用一个引擎
 ```
 
 示例均支持 `--direct`（直连）和 `--proxy http://127.0.0.1:7890`，在名称后加 `--help` 查看全部参数，`--output result.json` 可保存结果。各示例目录内附 README。
@@ -249,6 +264,7 @@ python -m ruyijs.examples creepjs              # CreepJS 指纹审计
 | **`configure_clock` / `advance` / `tick`** | 逻辑时钟 vs 系统时钟，推进事件循环 |
 | **`JSError` / `console_log` / `net_log`** | 异常、console 与网络记录 |
 | **`JSObject` / `JSFunction` / `get_runtime_path`** | 存活 JS 句柄、内置运行时路径 |
+| **`Engine` / `engine.context` / `use_engine`** | 多个独立 Context 作为同一进程的会话 |
 
 ## 📏 使用范围与限制
 

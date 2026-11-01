@@ -1,5 +1,6 @@
 #pragma once
 #include "resource_network/necko_pipe.h"
+#include "runtime/transport_partition.h"
 #include <mutex>
 #include <string>
 #include <vector>
@@ -15,7 +16,10 @@ class NeckoHelper {
       WaitForSingleObject(process_.Get(), 5000);
     }
   }
-  bool Start(const std::wstring& python, NeckoPipe& input, NeckoPipe& output, const wchar_t* mode) {
+  // `partition` overrides the inherited environment for its helper (proxy,
+  // TLS release); nullptr or no overrides keeps the process environment.
+  bool Start(const std::wstring& python, NeckoPipe& input, NeckoPipe& output, const wchar_t* mode,
+             const TransportPartition* partition = nullptr) {
     std::lock_guard<std::mutex> guard(lock_);
     job_.Reset(CreateJobObjectW(nullptr, nullptr));
     JOBOBJECT_EXTENDED_LIMIT_INFORMATION limits{};
@@ -44,9 +48,12 @@ class NeckoHelper {
     std::wstring command = L"\"" + python + L"\" -I -B -m ruyijs_necko.oneshot";
     if (mode && *mode) { command += L" "; command += mode; }
     PROCESS_INFORMATION process{};
+    std::wstring environment;
+    if (partition && Overrides(*partition)) environment = EnvironmentBlock(*partition);
     const BOOL created = restricted && CreateProcessW(python.c_str(), command.data(), nullptr,
-        nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,
-        nullptr, nullptr, &startup.StartupInfo, &process);
+        nullptr, TRUE, CREATE_NO_WINDOW | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT |
+            (environment.empty() ? 0 : CREATE_UNICODE_ENVIRONMENT),
+        environment.empty() ? nullptr : environment.data(), nullptr, &startup.StartupInfo, &process);
     DeleteProcThreadAttributeList(attributes);
     if (!created) return false;
     process_.Reset(process.hProcess);
@@ -75,7 +82,8 @@ class NeckoHelper {
   ~NeckoHelper();
   NeckoHelper(const NeckoHelper&) = delete;
   NeckoHelper& operator=(const NeckoHelper&) = delete;
-  bool Start(const std::wstring& python, NeckoPipe& input, NeckoPipe& output, const wchar_t* mode);
+  bool Start(const std::wstring& python, NeckoPipe& input, NeckoPipe& output, const wchar_t* mode,
+             const TransportPartition* partition = nullptr);
   void Cancel();
   bool Finish(ULONGLONG deadline);
  private:

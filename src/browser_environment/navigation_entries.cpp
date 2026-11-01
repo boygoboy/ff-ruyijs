@@ -18,7 +18,7 @@ const JSClass kNavigationDestinationClass = {"NavigationDestination", JSCLASS_HA
 namespace {
 using UrlValue = ruyijs::domain::browser_environment::UrlValue;
 std::string Uuid() {
-  static std::mt19937_64 random{std::random_device{}()};
+  thread_local std::mt19937_64 random{std::random_device{}()};
   const uint64_t a = random(), b = random();
   char text[40];
   std::snprintf(text, sizeof text, "%08x-%04x-4%03x-%04x-%012llx", unsigned(a >> 32), unsigned(a >> 16) & 0xffff,

@@ -60,7 +60,9 @@ bool ProductMode(int count, char** values) {
         !strcmp(values[index], "--ruyijs-rpc") ||
         !strncmp(values[index], "--ruyijs-rpc=", 13) ||
         !strcmp(values[index], "--ruyijs-worker") ||
-        !strncmp(values[index], "--ruyijs-worker=", 16)) return true;
+        !strncmp(values[index], "--ruyijs-worker=", 16) ||
+        !strcmp(values[index], "--ruyijs-host") ||
+        !strncmp(values[index], "--ruyijs-host=", 14)) return true;
   }
   return false;
 }
