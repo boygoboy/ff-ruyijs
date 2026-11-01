@@ -164,18 +164,34 @@ bool ExceptionStackGetter(JSContext* cx, unsigned argc, JS::Value* vp) {
   } else if (!(text = JS_NewStringCopyZ(cx, ""))) return false;
   args.rval().setString(text);return true;
 }
+// Names without a legacy code that Firefox's error table (dom/base/domerr.msg)
+// still lists; its DOMException constructor takes their nsresult from there.
+struct NamedResult { const char* name; uint32_t result; };
+constexpr NamedResult kNamedResults[] = {
+    {"NotAllowedError", 0x80530021}, {"EncodingError", 0x8053001C}, {"ParityError", 0x80750001},
+    {"UnknownError", 0x8053001E}, {"DataError", 0x8053001F}, {"OperationError", 0x80530020},
+    {"ConstraintError", 0x80660004}, {"TransactionInactiveError", 0x80660007},
+    {"ReadOnlyError", 0x80660009}, {"VersionError", 0x8066000C}, {"NotReadableError", 0x8066000D},
+    {"FileHandleInactiveError", 0x80670003}};
 // NS_ERROR_GENERATE_FAILURE(NS_ERROR_MODULE_DOM(14), code): the legacy numeric
 // result Firefox exposes as nsException.result (0x80530000 | code). Names
-// without a legacy code carry 0 in slot 2, and Firefox answers 0 for those
-// (unknown names, TypeError, DOMSTRING_SIZE_ERR and friends) rather than the
-// bare module bits.
+// without a legacy code answer their kNamedResults entry, or 0 (unknown names,
+// TypeError, DOMSTRING_SIZE_ERR and friends) rather than the bare module bits.
 bool ExceptionResultGetter(JSContext* cx, unsigned argc, JS::Value* vp) {
   JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
   JS::RootedObject self(cx);
   if (!ExceptionReceiver(cx, argc, vp, &self)) return false;
   const auto code = JS::GetReservedSlot(self, 2);
   const int legacy = code.isInt32() ? code.toInt32() : 0;
-  const unsigned result = legacy ? 0x80530000u | unsigned(legacy) : 0u;
+  uint32_t result = legacy ? 0x80530000u | uint32_t(legacy) : 0u;
+  const auto name = JS::GetReservedSlot(self, 0);
+  if (!legacy && name.isString()) {
+    for (const auto& entry : kNamedResults) {
+      bool same = false;
+      if (!JS_StringEqualsAscii(cx, name.toString(), entry.name, &same)) return false;
+      if (same) { result = entry.result;break; }
+    }
+  }
   args.rval().setNumber(double(result));return true;
 }
 // nsException.data: DOMException carries no exception payload; Firefox
@@ -193,11 +209,8 @@ bool ExceptionStackSetter(JSContext* cx, unsigned argc, JS::Value* vp) {
   JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
   JS::RootedObject self(cx);
   if (!ExceptionReceiver(cx, argc, vp, &self)) return false;
-  JS::RootedId key(cx);
-  JS::RootedValue nameValue(cx, JS::StringValue(JS_NewStringCopyZ(cx, "stack")));
-  if (!nameValue.isString() || !JS_ValueToId(cx, nameValue, &key)) return false;
-  if (!JS_DefinePropertyById(cx, self, key, args.get(0),
-                             JSPROP_ENUMERATE)) return false;
-  args.rval().set(args.get(0));return true;
+  // A WebIDL setter returns undefined, as Firefox's does.
+  if (!JS_DefineProperty(cx, self, "stack", args.get(0), JSPROP_ENUMERATE)) return false;
+  args.rval().setUndefined();return true;
 }
 }
