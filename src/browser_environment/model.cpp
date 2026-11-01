@@ -1,4 +1,5 @@
 #include "browser_environment/model_internal.h"
+#include "runtime/cf_access_log.h"
 #include <type_traits>
 #include <utility>
 
@@ -43,6 +44,15 @@ bool Model::TouchEventsEnabled(bool* result) const noexcept {
 
 bool Model::Read(Kind kind, uint32_t field, FieldValue* result) const noexcept {
   if (!impl_) return false;
+  {
+    // Challenge-research access log (RUYIJS_CF_ACCESS_LOG).
+    static const char* const kindNames[] = {"navigator", "screen", "location", "history",
+        "locale", "webgl", "webgpu", "viewport", "permissions", "geolocation", "speech",
+        "storage", "media", "canvas", "audio", "mediafeatures", "rtc", "fonts"};
+    const auto index = static_cast<size_t>(kind);
+    if (index < sizeof(kindNames) / sizeof(kindNames[0]))
+      cf_log::access(kindNames[index], std::to_string(field));
+  }
   try {
     const auto& owner = impl_->aggregate;
     if (kind == Kind::Navigator) {

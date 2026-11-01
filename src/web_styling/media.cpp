@@ -1,6 +1,7 @@
 // matchMedia and MediaQueryList (T17). The matches value is evaluated on every
 // access from the original browsing context's viewport and screen sources,
 // without a second display state or a change notification (D37).
+#include "runtime/cf_access_log.h"
 #include "web_styling/condition_environment.h"
 #include "js/Realm.h"
 #include "web_styling/internal.h"
@@ -74,6 +75,10 @@ bool Noop(JSContext* cx, unsigned argc, JS::Value* vp) {
 bool MatchMedia(JSContext* cx, unsigned argc, JS::Value* vp) {
   auto args = JS::CallArgsFromVp(argc, vp);
   if(!argc) return WebKit::Fail(cx,"matchMedia requires a query");
+  {
+    std::string query;
+    if (detail::ToAscii(cx, args.get(0), &query)) cf_log::access("matchMedia", query);
+  }
   State& state = *detail::Self(args);
   bool is_page = args.thisv().isUndefined() ||
                  (args.thisv().isObject() && &args.thisv().toObject() == state.page);
