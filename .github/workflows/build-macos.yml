@@ -168,8 +168,7 @@ jobs:
           wheel-test/bin/python "$GITHUB_WORKSPACE/ci/atob_check.py"
           wheel-test/bin/python "$GITHUB_WORKSPACE/ci/network_smoke.py"
           wheel-test/bin/python "$GITHUB_WORKSPACE/ci/proxy_smoke.py"
-          # Reported, not enforced yet: the macOS ClientHello comes from native/necko_tls.
-          wheel-test/bin/python "$GITHUB_WORKSPACE/ci/hello_check.py" --report-only
+          wheel-test/bin/python "$GITHUB_WORKSPACE/ci/hello_check.py"
 
       - name: Upload the wheel
         if: always()

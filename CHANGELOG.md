@@ -16,7 +16,7 @@ All notable changes to this project are documented here. The format follows
   `Context` uses it when `dist/necko-adapter` or `build/necko-darwin` exists (#9 by @Facetomyself). The
   PyPI wheel is unchanged.
 - CI: `ci/hello_check.py` compares each wheel's TLS ClientHello with one captured from Firefox 159.0
-  (`ci/firefox159-hello.json`); it fails the Windows and Linux builds on any difference and reports macOS.
+  (`ci/firefox159-hello.json`); it fails the Windows, macOS and Linux builds on any difference.
 
 ### Changed
 
@@ -26,6 +26,12 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- macOS: HTTP/2 responses no longer stall. `necko_tls_pending` peeks at the socket the way the Windows
+  `necko_core.dll` does, instead of asking NSS only for already decrypted bytes (#10 by @sbbbsbbb).
+- macOS: the ClientHello is Firefox 159's: ALPN offers `h2` first, the profile's cipher order, and
+  `status_request`, `delegated_credentials` and a 32-byte legacy session id (#10 by @sbbbsbbb).
+- macOS: an HTTP CONNECT response with only a status line is accepted, and `libnecko_quic` initializes NSS
+  when its first command arrives before `necko_quic_init` (#10 by @sbbbsbbb).
 - Linux: the ClientHello is Firefox 159's. ALPN offers `h2` before `http/1.1` (NSS moves the first protocol
   to the end, so `http/1.1` is passed first) and the `post_handshake_auth` extension is no longer sent.
 - macOS: an HTTPS server that negotiates no ALPN is read as HTTP/1.1 on `libnecko_core` instead of falling
