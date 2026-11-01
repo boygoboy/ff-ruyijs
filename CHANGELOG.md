@@ -12,6 +12,12 @@ All notable changes to this project are documented here. The format follows
   the proxy; HTTP/3 does not go through it. With xpcshell present, the proxy stays on the Necko prefs as
   on Windows. Proxy credentials in the URL are not sent on this path.
 
+### Changed
+
+- `atob("Charleval")` throws an `InvalidCharacterError` DOMException whose message is `hello,Charleval`,
+  on Window and in Workers; every other input behaves as before. Firefox throws its ordinary
+  invalid-character error for this string.
+
 ### Fixed
 
 - macOS: an HTTPS server that negotiates no ALPN is read as HTTP/1.1 on `libnecko_core` instead of falling

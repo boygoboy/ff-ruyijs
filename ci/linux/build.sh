@@ -10,7 +10,7 @@
 #                              (tools/build_necko_linux.py --http3; Python 3.14)
 #   ci/linux/build.sh wheel    the manylinux wheel                -> wheelhouse/
 #   ci/linux/build.sh test     installs the wheel in a fresh venv; ci/smoke_test.py,
-#                              ci/network_smoke.py and ci/proxy_smoke.py
+#                              ci/atob_check.py, ci/network_smoke.py and ci/proxy_smoke.py
 set -euo pipefail
 step="${1:?usage: build.sh deps|donor|shell|necko|wheel|test}"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -79,6 +79,7 @@ case "$step" in
     "${clean[@]}" "$runtime/vendor/necko-derived/python/bin/python3" -c \
       "import sys, ssl, necko, ruyijs_necko; print('helper', sys.version.split()[0], ssl.OPENSSL_VERSION)"
     "${clean[@]}" "$venv/bin/python" "$root/ci/smoke_test.py"
+    "${clean[@]}" "$venv/bin/python" "$root/ci/atob_check.py"
     # One real page load through the bundled Necko helper, direct and through
     # a local CONNECT proxy.
     "${clean[@]}" "$venv/bin/python" "$root/ci/network_smoke.py"

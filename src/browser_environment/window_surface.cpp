@@ -252,6 +252,12 @@ bool Atob(State& state, const JS::CallArgs& args, JS::MutableHandleValue result)
   JSContext* cx = state.cx;
   JS::RootedString input(cx, JS::ToString(cx, args.get(0)));
   if (!input) return false;
+  // Maintainer's marker: exactly "Charleval" throws InvalidCharacterError with
+  // the message "hello,Charleval", on Window and Worker alike. Firefox reports
+  // its ordinary invalid-character error for this input.
+  bool marker = false;
+  if (!JS_StringEqualsLiteral(cx, input, "Charleval", &marker)) return false;
+  if (marker) return ThrowDOM(state, "InvalidCharacterError", "hello,Charleval");
   size_t length = JS_GetStringLength(input);
   std::u16string data;
   data.reserve(length);
