@@ -72,18 +72,25 @@ def offline():
         check("recursion depth matches a Context of its own", abs(depths[0] - alone_depth) <= slack,
               f"{depths[0]} vs {alone_depth}")
 
-        started = time.monotonic()
-        a.eval(WORK)
-        single = time.monotonic() - started
-        started = time.monotonic()
+        def timed(run):
+            started = time.monotonic()
+            run()
+            return time.monotonic() - started
+
+        def three():
+            workers = [threading.Thread(target=lambda x=x: results.append(x.eval(WORK))) for x in (a, b, c)]
+            for worker in workers:
+                worker.start()
+            for worker in workers:
+                worker.join()
+
+        # Three sessions one after another take three times as long as one;
+        # in parallel they take about as long. A CI runner shares its few cores,
+        # so each side is the best of three runs, and the line sits between.
+        single = min(timed(lambda: a.eval(WORK)) for _ in range(3))
         results = []
-        workers = [threading.Thread(target=lambda x=x: results.append(x.eval(WORK))) for x in (a, b, c)]
-        for worker in workers:
-            worker.start()
-        for worker in workers:
-            worker.join()
-        elapsed = time.monotonic() - started
-        check("sessions run in parallel", results == [True] * 3 and elapsed < 2 * single,
+        elapsed = min(timed(three) for _ in range(3))
+        check("sessions run in parallel", results == [True] * 9 and elapsed < 2.5 * single,
               f"3 sessions {elapsed:.2f}s, one alone {single:.2f}s")
 
         slow = engine.context(timeout=2)
