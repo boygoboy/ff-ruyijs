@@ -14,8 +14,9 @@ All notable changes to this project are documented here. The format follows
   installed wheel in a fresh venv offline (`ci/smoke_test.py`) and online (`ci/network_smoke.py`, one page
   load through Necko). No Firefox tree outside the repository is needed.
 - macOS arm64 on PyPI (`macosx_26_0_arm64`, macOS 26 or later). Direct HTTPS uses `libnecko_core.dylib`
-  and `libnecko_quic.dylib`, linked against the NSS built from the same source. The wheel has no xpcshell,
-  so proxies are not available on macOS yet. `h2`, `cryptography`, `publicsuffixlist` and `backports.zstd`
+  and `libnecko_quic.dylib`, linked against the NSS built from the same source. The wheel has no xpcshell. Without that binary, `Context(proxy=...)` opens an
+  HTTP CONNECT tunnel and then uses `libnecko_core`. The wheel already published
+  as 0.3.0 does not include the tunnel until the next release. `h2`, `cryptography`, `publicsuffixlist` and `backports.zstd`
   join the Darwin dependencies of the Necko helper.
 - Linux x86_64 (`manylinux_2_39_x86_64`, glibc 2.39 or later; #5 by @Starktomy): a native ELF shell on the
   POSIX process, pipe and socket layer shared with macOS; fontconfig/FreeType/HarfBuzz text, OpenSSL 3

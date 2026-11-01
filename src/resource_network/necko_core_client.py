@@ -1,10 +1,12 @@
 """HTTPS through libnecko_core for the Mac oneshot.
 
 The donor xpcshell stays in place when this library is missing, reports a
-different NSS build, or the request is not direct HTTPS. Cookies and
-redirects are still not stored here. One session reuses an HTTP/2 connection
-per origin and Firefox version. HTTP/1.1 is one exchange, then the socket
-closes. Certificate verification failures stay on this path.
+different NSS build, or the request is not direct HTTPS. When xpcshell is
+absent and RUYIJS_HTTP_PROXY is set, HTTPS opens a CONNECT tunnel and then
+this same TLS path. Cookies and redirects are still not stored here. One
+session reuses an HTTP/2 connection per origin and Firefox version. HTTP/1.1
+is one exchange, then the socket closes. Certificate verification failures
+stay on this path.
 """
 
 from __future__ import annotations
@@ -154,12 +156,17 @@ def _hello_shape(data: bytes) -> dict | None:
 
 
 class _Socket:
-    def __init__(self, sock: socket.socket) -> None:
+    def __init__(self, sock: socket.socket, pending: bytes = b"") -> None:
         self._sock = sock
+        self._pending = pending
         self.timeout = sock.gettimeout()
         self.hello = None
 
     def read(self, size: int) -> bytes:
+        if self._pending:
+            data = self._pending[:size]
+            self._pending = self._pending[size:]
+            return data
         data = self._sock.recv(size)
         if not data:
             raise ConnectionError("socket closed")
@@ -202,6 +209,34 @@ def _reraise(error):
     if isinstance(error, (TimeoutError, socket.timeout, ConnectionError, OSError)):
         raise NeckoError(str(error)) from error
     raise NeckoError(str(error)) from error
+
+
+def _connect_authority(host: str, port: int) -> str:
+    name = host.encode("idna").decode("ascii")
+    if ":" in name:
+        name = f"[{name}]"
+    return f"{name}:{port}"
+
+
+def _proxy_connect(sock: socket.socket, host: str, port: int) -> bytes:
+    authority = _connect_authority(host, port)
+    sock.sendall(
+        f"CONNECT {authority} HTTP/1.1\r\nHost: {authority}\r\n\r\n".encode("ascii")
+    )
+    data = b""
+    while b"\r\n\r\n" not in data:
+        chunk = sock.recv(4096)
+        if not chunk:
+            raise NeckoError("proxy closed during CONNECT")
+        data += chunk
+        if len(data) > 65536:
+            raise NeckoError("proxy response is too large")
+    head, _, rest = data.partition(b"\r\n\r\n")
+    status = head.split(b"\r\n", 1)[0].decode("latin-1", "replace")
+    fields = status.split(" ")
+    if len(fields) < 2 or fields[1] != "200":
+        raise NeckoError("proxy CONNECT failed")
+    return rest
 
 
 def _request_path(parts) -> str:
@@ -316,11 +351,17 @@ class CoreClient:
             self._discard(key)
 
     def _connect(self, host, port, version, budget_s):
+        from necko.client import proxy_endpoint
+
+        proxy = proxy_endpoint()
         sock = None
+        pending = b""
         try:
-            sock = socket.create_connection((host, port), timeout=budget_s)
+            sock = socket.create_connection(proxy or (host, port), timeout=budget_s)
             sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-            transport = _Socket(sock)
+            if proxy is not None:
+                pending = _proxy_connect(sock, host, port)
+            transport = _Socket(sock, pending)
             tls = TLS(
                 transport,
                 self._context,
@@ -368,12 +409,12 @@ class CoreClient:
         parts = urlsplit(url)
         if parts.scheme != "https" or not parts.hostname:
             raise NeckoError("necko core fetch is direct HTTPS only")
-        if os.environ.get("RUYIJS_HTTP_PROXY"):
-            raise NeckoError("necko core fetch does not own the proxy path")
+        from necko.client import proxy_endpoint
+
         version = os.environ.get("NECKO_FIREFOX") or "159"
         host = parts.hostname
         port = parts.port or 443
-        key = (host, port, version)
+        key = (host, port, version, proxy_endpoint())
         lane = self._lanes.get(key)
         if lane is None:
             lane = self._connect(host, port, version, budget_s)

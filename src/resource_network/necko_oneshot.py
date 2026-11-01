@@ -8,7 +8,6 @@ reuses them (docs/NECKO_TRANSPORT.md, ARCHITECTURE "Necko 会话传输").
 import os
 import struct
 import sys
-from urllib.parse import urlsplit
 from necko.adapters import HTTPAdapter
 from requests import Request
 from requests.structures import CaseInsensitiveDict
@@ -31,15 +30,11 @@ class Framing(ValueError):
 
 
 def transport_proxies():
-    proxy = os.environ.get("RUYIJS_HTTP_PROXY", "")
-    if not proxy:
+    from necko.client import proxy_endpoint
+
+    if proxy_endpoint() is None:
         return {}
-    address = urlsplit(proxy)
-    if (len(proxy) > 65536 or address.scheme not in ("http", "https") or
-            not address.hostname or address.path not in ("", "/") or
-            address.query or address.fragment or any(c in proxy for c in "\r\n\x00")):
-        raise ValueError("Invalid HTTP proxy configuration")
-    address.port  # Validate a supplied numeric port before opening any socket.
+    proxy = os.environ["RUYIJS_HTTP_PROXY"]
     return {"http": proxy, "https": proxy}
 
 
