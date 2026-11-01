@@ -165,13 +165,17 @@ bool ExceptionStackGetter(JSContext* cx, unsigned argc, JS::Value* vp) {
   args.rval().setString(text);return true;
 }
 // NS_ERROR_GENERATE_FAILURE(NS_ERROR_MODULE_DOM(14), code): the legacy numeric
-// result Firefox exposes as nsException.result (0x80530000 | code).
+// result Firefox exposes as nsException.result (0x80530000 | code). Names
+// without a legacy code carry 0 in slot 2, and Firefox answers 0 for those
+// (unknown names, TypeError, DOMSTRING_SIZE_ERR and friends) rather than the
+// bare module bits.
 bool ExceptionResultGetter(JSContext* cx, unsigned argc, JS::Value* vp) {
   JS::CallArgs args = JS::CallArgsFromVp(argc, vp);
   JS::RootedObject self(cx);
   if (!ExceptionReceiver(cx, argc, vp, &self)) return false;
   const auto code = JS::GetReservedSlot(self, 2);
-  const unsigned result = 0x80530000u | (code.isInt32() ? unsigned(code.toInt32()) : 0u);
+  const int legacy = code.isInt32() ? code.toInt32() : 0;
+  const unsigned result = legacy ? 0x80530000u | unsigned(legacy) : 0u;
   args.rval().setNumber(double(result));return true;
 }
 // nsException.data: DOMException carries no exception payload; Firefox
