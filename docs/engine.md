@@ -43,7 +43,9 @@ for each other.
 - its proxy and TLS profile, its Necko helper processes, their connections
   and TLS session cache;
 - the timer-precision secret and the native stack: recursion depth is the same
-  as in a Context with a process of its own.
+  as in a Context with a process of its own (on macOS up to a frame apart:
+  macOS also takes a process's command line and environment out of its main
+  thread's stack).
 
 A session does not see another one's globals, documents, cookies or host
 functions, and a server cannot link two sessions through a shared connection

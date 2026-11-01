@@ -100,11 +100,13 @@ bool Run(JSContext* cx, js::cli::OptionParser* options, Checkpoint checkpoint,
   return RunSession(cx, session, options, checkpoint);
 }
 
+RUYIJS_NEVER_INLINE
 bool RunSession(JSContext* cx, const SessionOptions& session, js::cli::OptionParser* cli,
                 Checkpoint checkpoint) {
   // A single session and a shared engine enter here from the same statement
   // of Run, so this is the native stack a single session has; the engine's
-  // sessions get exactly as much (SessionOptions::stack).
+  // sessions get exactly as much (SessionOptions::stack). Never inlined, so
+  // this is RunSession's own frame whether Run or an engine session calls it.
   const uintptr_t entry = RUYIJS_ENTRY_POSITION();
   if (session.host) return Host(cx, cli, checkpoint, *session.host, NativeStackBelow(cx, entry));
   if (session.stack) MatchNativeStack(cx, entry, session.stack);

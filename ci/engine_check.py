@@ -16,7 +16,7 @@ import time
 
 from ruyijs import Context, Engine, JSError, use_engine
 
-DEPTH = "(() => { let n = 0; const f = () => { n++; f(); }; try { f(); } catch (e) {} return n; })()"
+DEPTH = "(() => { let n = 0; const f = () => { with ({}) {} n++; f(); }; try { f(); } catch (e) {} return n; })()"
 WORK = "(() => { let x = 0; for (let i = 0; i < 400000000; i++) x = (x + i) | 0; return x !== 1; })()"
 
 
@@ -27,9 +27,12 @@ def check(label, condition, detail=""):
 
 
 def steady_depth(context):
-    # A deep recursion that races the JIT tiers up goes deeper than the steady
-    # state, in a Context of its own as in a session.
-    return min(context.eval(DEPTH) for _ in range(5))
+    # Ion compiles a hot function off-thread and switches it over in the middle
+    # of a deep recursion, at a moment that varies from call to call. `with`
+    # keeps DEPTH's function out of Ion: after a first call that warms Baseline
+    # up, every call reaches the same depth.
+    context.eval(DEPTH)
+    return min(context.eval(DEPTH) for _ in range(3))
 
 
 def page(context, url, marker):
@@ -60,7 +63,12 @@ def offline():
         check("host functions stay per session",
               (a.eval("hostEcho(1)"), b.eval("typeof hostEcho")) == ("a:1", "undefined"))
         depth = steady_depth(b)
-        check("recursion depth matches a Context of its own", depth == alone_depth, f"{depth} vs {alone_depth}")
+        # macOS also takes a process's command line and environment out of its
+        # main thread's stack, and a Context's command line is a little longer
+        # than the engine's.
+        slack = 1 if sys.platform == "darwin" else 0
+        check("recursion depth matches a Context of its own", abs(depth - alone_depth) <= slack,
+              f"{depth} vs {alone_depth}")
 
         started = time.monotonic()
         a.eval(WORK)

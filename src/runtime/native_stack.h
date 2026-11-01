@@ -9,11 +9,14 @@
 
 // Where the frame of the function that expands it begins: the slot of its
 // return address (MSVC ABI) or its frame pointer, a fixed offset from it.
-// Two functions called from the same frame report the same position.
+// That function must be RUYIJS_NEVER_INLINE: inlined into a caller, it would
+// report where the caller's frame begins, which differs from caller to caller.
 #if defined(_MSC_VER)
 #define RUYIJS_ENTRY_POSITION() reinterpret_cast<uintptr_t>(_AddressOfReturnAddress())
+#define RUYIJS_NEVER_INLINE __declspec(noinline)
 #else
 #define RUYIJS_ENTRY_POSITION() reinterpret_cast<uintptr_t>(__builtin_frame_address(0))
+#define RUYIJS_NEVER_INLINE __attribute__((noinline))
 #endif
 
 namespace ruyijs {

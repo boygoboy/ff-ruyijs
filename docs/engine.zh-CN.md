@@ -38,7 +38,8 @@ with Engine() as engine, use_engine(engine):
 - 完整的环境配置：navigator、screen、canvas 噪声、WebRTC、音频、字体、媒体特征、
   语言和设备像素比；
 - 自己的代理和 TLS 配置、自己的 Necko 辅助进程及其连接和 TLS 会话缓存；
-- 计时精度密钥和原生栈：递归深度与独立进程的 Context 相同。
+- 计时精度密钥和原生栈：递归深度与独立进程的 Context 相同（macOS 上可能相差一帧：
+  macOS 还会从主线程栈中划出进程的命令行和环境变量）。
 
 会话看不到其他会话的全局变量、文档、Cookie 和宿主函数；除非用 `network=`（见下）
 主动要求，服务器也无法通过共享连接把两个会话关联起来。
