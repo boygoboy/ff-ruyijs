@@ -11,6 +11,12 @@ All notable changes to this project are documented here. The format follows
   HTTP CONNECT tunnel and then uses `libnecko_core`; cleartext HTTP sends an absolute-form request through
   the proxy; HTTP/3 does not go through it. With xpcshell present, the proxy stays on the Necko prefs as
   on Windows. Proxy credentials in the URL are not sent on this path.
+- macOS: `tools/build_necko_darwin.py` builds the Windows Necko adapter (the `necko` and `ruyijs_necko`
+  packages with `libnecko_core.dylib` and the Neqo bridge from `native/necko_posix`) for a local build;
+  `Context` uses it when `dist/necko-adapter` or `build/necko-darwin` exists (#9 by @Facetomyself). The
+  PyPI wheel is unchanged.
+- CI: `ci/hello_check.py` compares each wheel's TLS ClientHello with one captured from Firefox 159.0
+  (`ci/firefox159-hello.json`); it fails the Windows and Linux builds on any difference and reports macOS.
 
 ### Changed
 
@@ -20,6 +26,8 @@ All notable changes to this project are documented here. The format follows
 
 ### Fixed
 
+- Linux: the ClientHello is Firefox 159's. ALPN offers `h2` before `http/1.1` (NSS moves the first protocol
+  to the end, so `http/1.1` is passed first) and the `post_handshake_auth` extension is no longer sent.
 - macOS: an HTTPS server that negotiates no ALPN is read as HTTP/1.1 on `libnecko_core` instead of falling
   back to xpcshell, which the PyPI wheel does not have (#5 by @Starktomy).
 - macOS: closing a WebTransport session keeps its final statistics; they are read before Neqo removes the
