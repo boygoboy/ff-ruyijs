@@ -10,7 +10,7 @@ All notable changes to this project are documented here. The format follows
 - `Engine`: many independent Contexts as sessions of one shell process (`engine.context(...)`,
   `Context(engine=...)`, `use_engine(engine)`; docs/engine.md). Each session runs on its own thread with its
   own JSContext, heap, page, clock, cookies, storage, host functions, environment, proxy, TLS profile and
-  Necko helpers, in parallel; recursion depth matches a Context of its own. A timeout or `close()` ends only
+  Necko helpers, in parallel, with the native stack of a process of its own. A timeout or `close()` ends only
   that session. `prewarm`, `network=` (shared helpers and connections) and `max_helpers` bound the helper
   processes: four sessions measured 219 MiB in 5 processes against 385 MiB in 12 for four Contexts.
   `python -m ruyijs.examples --shared NAME ...` runs several examples at once in one engine, and every

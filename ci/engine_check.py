@@ -62,13 +62,15 @@ def offline():
         a.expose(lambda value: f"a:{value}", "hostEcho")
         check("host functions stay per session",
               (a.eval("hostEcho(1)"), b.eval("typeof hostEcho")) == ("a:1", "undefined"))
-        depth = steady_depth(b)
-        # macOS also takes a process's command line and environment out of its
-        # main thread's stack, and a Context's command line is a little longer
-        # than the engine's.
-        slack = 1 if sys.platform == "darwin" else 0
-        check("recursion depth matches a Context of its own", abs(depth - alone_depth) <= slack,
-              f"{depth} vs {alone_depth}")
+        depths = [steady_depth(x) for x in (a, b, c)]
+        check("all sessions recurse equally deep", len(set(depths)) == 1, depths)
+        # A Context and the engine are two processes, and a process's stack
+        # starts where its system puts it: Windows ASLR starts a main thread's
+        # stack up to 2 KiB lower at random (13 frames of DEPTH across 60
+        # processes), macOS also takes the command line and environment out of it.
+        slack = {"win32": 16, "darwin": 1}.get(sys.platform, 0)
+        check("recursion depth matches a Context of its own", abs(depths[0] - alone_depth) <= slack,
+              f"{depths[0]} vs {alone_depth}")
 
         started = time.monotonic()
         a.eval(WORK)

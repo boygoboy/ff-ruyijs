@@ -42,14 +42,19 @@ for each other.
   WebRTC, audio, fonts, media features, language and device pixel ratio;
 - its proxy and TLS profile, its Necko helper processes, their connections
   and TLS session cache;
-- the timer-precision secret and the native stack: recursion depth is the same
-  as in a Context with a process of its own (on macOS up to a frame apart:
-  macOS also takes a process's command line and environment out of its main
-  thread's stack).
+- the timer-precision secret and the native stack: recursion goes as deep as
+  in a Context with a process of its own.
 
 A session does not see another one's globals, documents, cookies or host
 functions, and a server cannot link two sessions through a shared connection
 unless you ask for it with `network=` (below).
+
+How deep recursion goes depends on where a process's stack starts, which the
+system varies a little from process to process: Windows ASLR starts a main
+thread's stack up to 2 KiB lower at random (about a dozen frames), and macOS
+also takes a process's command line and environment out of it. Contexts differ
+from one another by that much; the sessions of one engine all get the stack of
+the engine's process.
 
 ## What sessions share
 
