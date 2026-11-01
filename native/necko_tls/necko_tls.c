@@ -396,6 +396,9 @@ static int apply_profile(PRFileDesc *fd, const necko_tls_profile *profile) {
     unsigned char alpn_h1[] = {8, 'h', 't', 't', 'p', '/', '1', '.', '1'};
     uint32_t n;
 
+    /* Safe renegotiation is not required, as in Firefox 159
+       (security.ssl.require_safe_negotiation is false): a server without
+       RFC 5746 still connects, it just cannot renegotiate. */
     if (SSL_OptionSet(fd, SSL_SECURITY, PR_TRUE) != SECSuccess ||
         SSL_OptionSet(fd, SSL_HANDSHAKE_AS_CLIENT, PR_TRUE) != SECSuccess ||
         SSL_OptionSet(fd, SSL_NO_CACHE, PR_FALSE) != SECSuccess ||
@@ -406,7 +409,7 @@ static int apply_profile(PRFileDesc *fd, const necko_tls_profile *profile) {
         SSL_OptionSet(fd, SSL_ENABLE_RENEGOTIATION, SSL_RENEGOTIATE_REQUIRES_XTN) != SECSuccess ||
         SSL_OptionSet(fd, SSL_ENABLE_EXTENDED_MASTER_SECRET, PR_TRUE) != SECSuccess ||
         SSL_OptionSet(fd, SSL_ENABLE_HELLO_DOWNGRADE_CHECK, PR_TRUE) != SECSuccess ||
-        SSL_OptionSet(fd, SSL_REQUIRE_SAFE_NEGOTIATION, PR_TRUE) != SECSuccess ||
+        SSL_OptionSet(fd, SSL_REQUIRE_SAFE_NEGOTIATION, PR_FALSE) != SECSuccess ||
         SSL_OptionSet(fd, SSL_ENABLE_ALPN, PR_TRUE) != SECSuccess ||
         SSL_OptionSet(fd, SSL_ENABLE_0RTT_DATA, PR_TRUE) != SECSuccess ||
         SSL_OptionSet(fd, SSL_ENABLE_POST_HANDSHAKE_AUTH, PR_FALSE) != SECSuccess ||
