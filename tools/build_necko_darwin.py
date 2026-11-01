@@ -1,0 +1,470 @@
+"""Spike: load the Windows Necko Python adapter on Darwin.
+
+Products stay under build/necko-darwin/. This does not replace
+vendor/necko-derived/python or dist/js. HTTP/3 is the Linux Neqo bridge
+built against the existing obj-necko NSS, not native/necko_quic.
+"""
+import argparse
+import hashlib
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import urllib.request
+import zipfile
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import compression_native
+
+DEPENDENCIES = ["requests==2.34.2", "urllib3==2.7.0", "h2==4.4.1",
+                "hpack==4.2.0", "hyperframe==6.1.0", "brotli==1.2.0",
+                "cryptography==50.0.1", "publicsuffixlist==1.0.2.20260922"]
+UPSTREAM = "vendor/necko-derived/python/Lib/site-packages/"
+PATCHES = {
+    "ruyijs_necko/brotli_native.py": [
+        ("import ctypes as ct\n", "import ctypes as ct\nimport os\n"),
+        ('        path = Path(__file__).with_name("ruyijs_brotli.dll")\n',
+         '        path = (Path(__file__).with_name("ruyijs_brotli.dll") if os.name == "nt" else\n'
+         '                Path(__file__).parent.parent / "necko/libnecko_core.dylib")\n'),
+    ],
+    "ruyijs_necko/launch.py": [
+        ("import os\n", "import os\nimport sys\n"),
+        ('    executable = runtime / "python/python.exe"\n',
+         '    executable = runtime / "python/python.exe" if os.name == "nt" else Path(sys.executable)\n'),
+    ],
+    "ruyijs_necko/connection_lifetime.py": [
+        ("def h3_finished(connection, udp):\n", "def h3_finished(connection, udp, selector=None):\n"),
+        ("        connection._ruyijs_retained_udp = udp\n",
+         "        connection._ruyijs_retained_udp = udp\n"
+         "    if selector is not None:\n"
+         "        connection._ruyijs_retained_selector = selector\n"),
+        ('    for attribute in ("_ruyijs_retained_udp", "_wake_read", "_wake_write", "_dll_directory"):\n',
+         '    for attribute in ("_ruyijs_retained_selector", "_ruyijs_retained_udp", "_wake_read", '
+         '"_wake_write", "_dll_directory"):\n'),
+    ],
+    "necko/_http3.py": [
+        ('                profile=PROFILES[self.firefox]["quic"],\n',
+         '                profile=PROFILES[self.firefox]["quic"],\n'
+         '                firefox=self.firefox,\n'),
+    ],
+    "necko/_transport.py": [
+        ("        from ._connect import race\n", "        from ._connect import Attempt\n"),
+        ("        connection = race(\n"
+         "            quic,\n"
+         "            lambda attempt: self._connect(\n"
+         "                request.url, None, verify, None, attempt.remaining(), attempt, control=control\n"
+         "            ),\n"
+         "            timeout,\n"
+         "            control=control,\n"
+         "        )\n"
+         "        if connection.alpn != \"h3\":\n"
+         "            from ruyijs_necko.cache_snapshot import drop\n"
+         "            drop(self, \"_alt_svc\", key, expected=alternate)\n"
+         "        return connection\n",
+         "        # A remembered Alt-Svc is this origin's next route. Letting a faster\n"
+         "        # TCP connection win, then forgetting the endpoint, keeps that origin\n"
+         "        # on HTTP/2. Certificate failure still fails the request.\n"
+         "        started = time.monotonic()\n"
+         "        deadline = None if timeout is None else started + timeout\n"
+         "        try:\n"
+         "            connection = quic(Attempt(deadline))\n"
+         "        except ssl.SSLError:\n"
+         "            raise\n"
+         "        except (OSError, ProtocolError, TimeoutError):\n"
+         "            connection = self._connect(\n"
+         "                request.url, None, verify, None, timeout, control=control\n"
+         "            )\n"
+         "        return connection\n"),
+    ],
+    "necko/_connect.py": [
+        ("import threading\nimport time\n", "import ssl\nimport threading\nimport time\n"),
+        ("            if winner:\n                returned = True\n                return winner[0]\n",
+         "            if winner:\n"
+         "                primary_error = completed.get(0)\n"
+         "                if isinstance(primary_error, ssl.SSLError):\n"
+         "                    raise primary_error\n"
+         "                returned = True\n"
+         "                return winner[0]\n"),
+    ],
+}
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def runtime_archive(root, build):
+    manifest = json.loads((root / "runtime.json").read_text(encoding="utf-8"))
+    archive = build / manifest["archive"]
+    if not archive.is_file():
+        request = urllib.request.Request(manifest["url"], headers={"User-Agent": "ruyijs-build"})
+        with urllib.request.urlopen(request, timeout=300) as source, archive.open("wb") as output:
+            shutil.copyfileobj(source, output)
+    if archive.stat().st_size != manifest["size"] or digest(archive.read_bytes()) != manifest["sha256"]:
+        archive.unlink()
+        raise ValueError("Pinned runtime archive size or SHA-256 differs from runtime.json")
+    return manifest, archive
+
+
+def install_packages(root, build, site):
+    manifest, archive = runtime_archive(root, build)
+    inventory = {}
+    with zipfile.ZipFile(archive) as source:
+        for entry in source.infolist():
+            if not entry.filename.startswith(UPSTREAM):
+                continue
+            relative = Path(entry.filename[len(UPSTREAM):])
+            if (not relative.parts or relative.parts[0] not in ("necko", "ruyijs_necko") or
+                    relative.suffix.lower() not in (".py", ".json", ".pem", ".dat", ".html", ".txt")):
+                continue
+            content = source.read(entry)
+            inventory[relative.as_posix()] = digest(content)
+            text_name = relative.as_posix()
+            if text_name in PATCHES:
+                text = content.decode("utf-8").replace("\r\n", "\n")
+                for old, new in PATCHES[text_name]:
+                    if text.count(old) != 1:
+                        raise ValueError(f"Darwin patch anchor changed in {text_name}: {old!r}")
+                    text = text.replace(old, new)
+                content = text.encode("utf-8")
+            target = site / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+    missing = sorted(set(PATCHES) - set(inventory))
+    if missing:
+        raise ValueError(f"Pinned runtime lacks {missing}")
+    oneshot = site / "ruyijs_necko/oneshot.py"
+    oneshot.write_bytes((root / "src/resource_network/necko_oneshot.py").read_bytes())
+    leftovers = []
+    for path in site.rglob("*.py"):
+        text = path.read_text(encoding="utf-8", errors="replace")
+        for token in (".dll", ".so", "python.exe"):
+            if token in text:
+                leftovers.append(f"{path.relative_to(site)}: {token}")
+    (build / "upstream.json").write_text(json.dumps({
+        "archive": manifest["url"], "sha256": manifest["sha256"], "files": inventory,
+        "patched": sorted(PATCHES),
+        "replaced": {"ruyijs_necko/oneshot.py": "src/resource_network/necko_oneshot.py"},
+        "platform_tokens": leftovers,
+    }, indent=2) + "\n", encoding="utf-8")
+    return leftovers
+
+
+def compile_core(root, build, site, nss_obj):
+    nss_obj = Path(nss_obj).resolve()
+    libdir = nss_obj / "dist" / "bin"
+    include = nss_obj / "dist" / "include"
+    nspr_source = nss_obj.parent / "nsprpub" / "pr" / "include"
+    if not nspr_source.is_dir():
+        nspr_source = root / "firefox" / "nsprpub" / "pr" / "include"
+    if not (libdir / "libnss3.dylib").is_file():
+        raise FileNotFoundError(libdir / "libnss3.dylib")
+    vendor = root / "native/necko_posix/src"
+    compression = root / "vendor/compression-native"
+    compression_native.frozen_inputs(compression)
+    objects = build / "objects"
+    objects.mkdir(parents=True, exist_ok=True)
+    decoder = []
+    cc = os.environ.get("CC", "clang")
+    for unit in compression_native.brotli_units(compression):
+        if unit.startswith(("common/", "dec/")):
+            output = objects / (unit.replace("/", "_")[:-2] + ".o")
+            subprocess.run([cc, "-std=c11", "-fPIC", "-O2",
+                            *compression_native.brotli_flags(compression),
+                            "-c", str(compression / "brotli" / unit), "-o", str(output)],
+                           check=True)
+            decoder.append(output)
+    target = site / "necko"
+    target.mkdir(parents=True, exist_ok=True)
+    output = build / "libnecko_core.dylib"
+    command = [
+        os.environ.get("CXX", "clang++"), "-std=c++20", "-dynamiclib", "-fPIC", "-O2",
+        "-DXP_DARWIN", "-DXP_UNIX",
+        "-I", str(include / "nspr"), "-I", str(include / "nss"), "-I", str(nspr_source),
+        "-I", str(compression / "brotli/include"),
+        *sorted(str(path) for path in vendor.glob("*.cpp")),
+        *map(str, decoder),
+        "-L", str(libdir),
+        "-lnss3", "-lmozglue",
+        "-Wl,-rpath,@loader_path",
+        "-Wl,-install_name,@rpath/libnecko_core.dylib",
+        "-o", str(output),
+    ]
+    log = build / "link.log"
+    result = subprocess.run(command, text=True, capture_output=True)
+    log.write_text(result.stdout + result.stderr, encoding="utf-8")
+    if result.returncode != 0:
+        raise RuntimeError(f"link failed, see {log}")
+    installed = target / "libnecko_core.dylib"
+    shutil.copy2(output, installed)
+    for name in ("libnss3.dylib", "libmozglue.dylib", "libfreebl3.dylib", "libsoftokn3.dylib"):
+        link = target / name
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to((libdir / name).resolve())
+    return installed
+
+
+def _replace_once(text, old, new, label):
+    if text.count(old) != 1:
+        raise ValueError(f"QUIC embedding anchor changed: {label}")
+    return text.replace(old, new, 1)
+
+
+def _detach(path):
+    """Replace an overlay symlink with a private copy before patching it."""
+    if path.is_symlink():
+        data = path.resolve().read_bytes()
+        path.unlink()
+        path.write_bytes(data)
+    return path
+
+
+def _patched_nss(root, firefox):
+    dest = root / "build/necko-darwin/quic-nss"
+    if dest.exists():
+        shutil.rmtree(dest)
+    shutil.copytree(firefox / "third_party/rust/nss-rs", dest,
+                    ignore=shutil.ignore_patterns("target"))
+    agent = dest / "src/agent.rs"
+    agent.write_text(_replace_once(
+        agent.read_text(encoding="utf-8"),
+        "impl SecretAgent {",
+        "impl SecretAgent {\n"
+        "    pub fn standalone_fd(&mut self) -> *mut std::ffi::c_void { self.fd.cast() }\n",
+        "SecretAgent",
+    ), encoding="utf-8")
+    return dest
+
+
+def _patch_transport(overlay):
+    connection = _detach(overlay / "neqo-transport/src/connection/mod.rs")
+    text = connection.read_text(encoding="utf-8")
+    text = _replace_once(
+        text,
+        "    pub fn set_certificate_compression<",
+        "    pub fn standalone_tls_fd(&mut self) -> *mut std::ffi::c_void {\n"
+        "        self.crypto.tls_mut().standalone_fd()\n    }\n\n"
+        "    pub fn set_certificate_compression<",
+        "standalone_tls_fd",
+    )
+    text = _replace_once(
+        text,
+        "    pub fn standalone_tls_fd(",
+        "    pub fn standalone_tp_style(&mut self, style: u8) {\n"
+        "        self.tps.borrow_mut().local_mut().standalone_wire_style = style;\n    }\n\n"
+        "    pub fn standalone_tls_fd(",
+        "standalone_tp_style",
+    )
+    connection.write_text(text, encoding="utf-8")
+    tparams = _detach(overlay / "neqo-transport/src/tparams.rs")
+    text = tparams.read_text(encoding="utf-8")
+    text = _replace_once(
+        text,
+        "pub struct TransportParameters {",
+        "pub struct TransportParameters {\n    pub standalone_wire_style: u8,",
+        "TransportParameters",
+    )
+    old = """        for (i, v) in self.params.iter().filter(|(i, v)| f(*i, v.as_ref())) {
+            if let Some(tp) = v {
+                tp.encode(enc, i);
+            }
+        }"""
+    new = """        let mut entries: Vec<_> = self.params.iter()
+            .filter(|(i,v)| f(*i,v.as_ref()) && v.is_some()).collect();
+        if self.standalone_wire_style != 0 {
+            // NSS entropy; Fisher-Yates with rejection avoids modulo bias.
+            for end in (1..entries.len()).rev() {
+                let bound = (end + 1) as u64;
+                let limit = u64::MAX - u64::MAX % bound;
+                let index = loop {
+                    let value = u64::from_ne_bytes(random::<8>());
+                    if value < limit { break (value % bound) as usize; }
+                };
+                entries.swap(end,index);
+            }
+        }
+        for (i,v) in entries {
+            if i == TransportParameterId::VersionInformation {
+                if self.standalone_wire_style == 3 { continue; }
+                if self.standalone_wire_style == 2 {
+                    let mut entry = Encoder::default();
+                    v.as_ref().unwrap().encode(&mut entry,i);
+                    let mut decoded = Decoder::new(entry.as_ref());
+                    decoded.decode_varint();
+                    enc.encode_varint(0xff73db_u64);
+                    enc.encode(decoded.decode_remainder());
+                    continue;
+                }
+            }
+            v.as_ref().unwrap().encode(enc,i);
+        }"""
+    tparams.write_text(_replace_once(text, old, new, "transport parameters"), encoding="utf-8")
+
+
+def compile_quic(root, site, nss_obj):
+    """Build the Linux Neqo bridge as libnecko_quic.dylib next to the spike core."""
+    import build_necko_quic
+
+    nss_obj = Path(nss_obj).resolve()
+    firefox = build_necko_quic.firefox_source(root).resolve()
+    if not (nss_obj / "dist/bin/libnss3.dylib").is_file():
+        raise FileNotFoundError(nss_obj / "dist/bin/libnss3.dylib")
+    nss_crate = _patched_nss(root, firefox)
+    config = build_necko_quic._vendor_config(nss_obj)
+    nss_dir = build_necko_quic._link_tree(nss_obj)
+    overlay = build_necko_quic._overlay(firefox / "third_party/rust", nss_crate)
+    _patch_transport(overlay)
+    workspace = root / "build/necko-darwin/quic-ws"
+    if workspace.exists():
+        shutil.rmtree(workspace)
+    workspace.mkdir(parents=True)
+    source = (root / "native/necko_posix/quic/lib.rs").resolve()
+    package_dir = workspace / "necko"
+    package_dir.mkdir()
+    (package_dir / "Cargo.toml").write_text(
+        "[package]\nname=\"necko_quic\"\nversion=\"0.1.0\"\nedition=\"2024\"\npublish=false\n"
+        "[lib]\ncrate-type=[\"cdylib\"]\npath=" + json.dumps(str(source)) + "\n"
+        "[dependencies]\nserde_json=\"1\"\nbase64=\"0.22\"\nlibc=\"0.2\"\n"
+        f'neqo-http3={{path="{ (overlay / "neqo-http3").as_posix() }"}}\n'
+        f'neqo-transport={{path="{ (overlay / "neqo-transport").as_posix() }"}}\n'
+        f'neqo-common={{path="{ (overlay / "neqo-common").as_posix() }"}}\n'
+        f'nss={{package="nss-rs",path="{ nss_crate.as_posix() }"}}\n',
+        encoding="utf-8",
+    )
+    (workspace / "Cargo.toml").write_text(
+        "[workspace]\nresolver=\"2\"\nmembers=[\"necko\"]\n\n" + build_necko_quic._patches(root),
+        encoding="utf-8",
+    )
+    env = os.environ.copy()
+    env["CARGO_NET_OFFLINE"] = "true"
+    env["CARGO_TARGET_DIR"] = str(root / "build/necko-darwin/quic-target")
+    env["NSS_DIR"] = str(nss_dir)
+    env["NSS_PREBUILT"] = "1"
+    libclang = build_necko_quic._libclang()
+    if libclang:
+        env["LIBCLANG_PATH"] = libclang
+    try:
+        env["SDKROOT"] = subprocess.check_output(["xcrun", "--show-sdk-path"], text=True).strip()
+    except (OSError, subprocess.CalledProcessError):
+        pass
+    lib_dir = nss_dir.parent / "dist/Release/lib"
+    env["RUSTFLAGS"] = (
+        f"-L native={lib_dir} "
+        "-C link-arg=-Wl,-rpath,@loader_path "
+        "-C link-arg=-Wl,-install_name,@rpath/libnecko_quic.dylib"
+    )
+    log = root / "build/necko-darwin/quic-link.log"
+    command = [os.environ.get("CARGO", "cargo"), "build", "--offline", "--release",
+               "--config", str(config), "--manifest-path", str(workspace / "Cargo.toml"),
+               "-p", "necko_quic"]
+    result = subprocess.run(command, cwd=workspace, env=env, text=True, capture_output=True)
+    log.write_text(result.stdout + result.stderr, encoding="utf-8")
+    if result.returncode != 0:
+        tail = "\n".join((result.stdout + result.stderr).splitlines()[-40:])
+        raise RuntimeError(f"QUIC link failed, see {log}\n{tail}")
+    built = Path(env["CARGO_TARGET_DIR"]) / "release/libnecko_quic.dylib"
+    if not built.is_file():
+        raise RuntimeError("libnecko_quic.dylib was not produced")
+    target = Path(site) / "necko"
+    target.mkdir(parents=True, exist_ok=True)
+    installed = target / "libnecko_quic.dylib"
+    shutil.copy2(built, installed)
+    bin_dir = nss_obj / "dist/bin"
+    folded = bin_dir / "libnss3.dylib"
+    for name in ("libssl3.dylib", "libnssutil3.dylib", "libnspr4.dylib", "libplc4.dylib", "libplds4.dylib"):
+        link = target / name
+        if link.is_symlink() or link.exists():
+            link.unlink()
+        link.symlink_to(folded.resolve())
+    return installed
+
+
+def stage_runtime(root):
+    """Copy the built helper to dist/necko-adapter, the runtime Context recognizes."""
+    source = root / "build/necko-darwin/python"
+    if not (source / "bin/python3").is_file():
+        raise FileNotFoundError(source / "bin/python3")
+    dest = root / "dist/necko-adapter/python"
+    if dest.exists():
+        shutil.rmtree(dest)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copytree(source, dest, symlinks=True)
+    core = next(dest.glob("lib/python*/site-packages/necko/libnecko_core.dylib"), None)
+    quic = next(dest.glob("lib/python*/site-packages/necko/libnecko_quic.dylib"), None)
+    if core is None or not core.is_file() or quic is None or not quic.is_file():
+        raise FileNotFoundError("staged adapter is missing libnecko_core or libnecko_quic")
+    return dest.parent
+
+
+def probe_imports(python, report):
+    code = r"""
+import traceback
+missing = []
+try:
+    from necko._transport import _load_library
+    library = _load_library()
+    print("loaded", library)
+    for name in ("necko_tls_nss_version", "necko_tls_nspr_version"):
+        print(name, getattr(library, name)().decode())
+except Exception:
+    traceback.print_exc()
+"""
+    result = subprocess.run([str(python), "-I", "-B", "-c", code], text=True,
+                            capture_output=True)
+    report.write_text(result.stdout + result.stderr, encoding="utf-8")
+    return result.returncode
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--nss-obj", type=Path, required=True)
+    parser.add_argument("--python", default="python3.12")
+    parser.add_argument("--quic-only", action="store_true")
+    args = parser.parse_args()
+    if sys.platform != "darwin":
+        parser.error("This spike runs on Darwin")
+    root = Path(__file__).resolve().parents[1]
+    build = root / "build/necko-darwin"
+    build.mkdir(parents=True, exist_ok=True)
+    if args.quic_only:
+        python = build / "python/bin/python3"
+        site = Path(subprocess.check_output(
+            [str(python), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+            text=True).strip())
+        print("quic", compile_quic(root, site, args.nss_obj))
+        print("runtime", stage_runtime(root))
+        return
+    runtime = build / "python"
+    python = runtime / "bin/python3"
+    if not (runtime / "bin/pip").exists():
+        subprocess.run([args.python, "-m", "venv", str(runtime)], check=True)
+    subprocess.run([str(python), "-m", "pip", "install", "--disable-pip-version-check",
+                    *DEPENDENCIES], check=True)
+    site = Path(subprocess.check_output(
+        [str(python), "-c", "import sysconfig; print(sysconfig.get_path('purelib'))"],
+        text=True).strip())
+    leftovers = install_packages(root, build, site)
+    print("platform tokens:")
+    for line in leftovers:
+        print(" ", line)
+    try:
+        installed = compile_core(root, build, site, args.nss_obj)
+        print("dylib", installed)
+    except Exception as error:
+        print("COMPILE_FAILED", error)
+    try:
+        print("quic", compile_quic(root, site, args.nss_obj))
+    except Exception as error:
+        print("QUIC_FAILED", error)
+    if (build / "python/bin/python3").is_file():
+        print("runtime", stage_runtime(root))
+    code = probe_imports(python, build / "import-report.txt")
+    print("import_ec", code)
+    print((build / "import-report.txt").read_text(encoding="utf-8"))
+
+
+if __name__ == "__main__":
+    main()

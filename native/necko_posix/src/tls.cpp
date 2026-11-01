@@ -6,6 +6,7 @@
 #include <sslproto.h>
 #include <prinit.h>
 #include <prerror.h>
+#include <algorithm>
 #include <memory>
 #include <mutex>
 #include <vector>
@@ -20,11 +21,14 @@ bool Configure(Tls* t, const Profile& p, const char* host, const char* peer, boo
   SSLVersionRange range{SSL_LIBRARY_VERSION_TLS_1_2, SSL_LIBRARY_VERSION_TLS_1_3};
   if (SSL_VersionRangeSet(fd, &range) != SECSuccess || SSL_SetURL(fd, host) != SECSuccess ||
       SSL_SetSockPeerID(fd, peer) != SECSuccess || SSL_AuthCertificateHook(fd, VerifyPeer, t) != SECSuccess) return false;
+  // Match the recovered necko_core.dll option set. NSS defaults already leave
+  // OCSP stapling, delegated credentials, post-handshake auth and the TLS 1.3
+  // compatibility session id off. Turning those on adds ClientHello extensions
+  // the captured Firefox hellos do not carry.
   const std::pair<int, int> options[] = {{SSL_SECURITY, PR_TRUE}, {SSL_HANDSHAKE_AS_CLIENT, PR_TRUE},
     {SSL_ENABLE_SESSION_TICKETS, PR_TRUE}, {SSL_ENABLE_EXTENDED_MASTER_SECRET, PR_TRUE},
-    {SSL_ENABLE_OCSP_STAPLING, PR_TRUE}, {SSL_ENABLE_SIGNED_CERT_TIMESTAMPS, p.signed_cert_timestamps},
-    {SSL_ENABLE_ALPN, PR_TRUE}, {SSL_ENABLE_TLS13_COMPAT_MODE, PR_TRUE},
-    {SSL_ENABLE_DELEGATED_CREDENTIALS, PR_TRUE}, {SSL_ENABLE_POST_HANDSHAKE_AUTH, PR_TRUE},
+    {SSL_ENABLE_SIGNED_CERT_TIMESTAMPS, p.signed_cert_timestamps},
+    {SSL_ENABLE_ALPN, PR_TRUE},
     {SSL_ENABLE_RENEGOTIATION, SSL_RENEGOTIATE_REQUIRES_XTN}};
   for (auto [option, value] : options) if (SSL_OptionSet(fd, option, value) != SECSuccess) return false;
   for (unsigned i = 0; i < SSL_NumImplementedCiphers; ++i)
@@ -109,14 +113,24 @@ void necko_tls_close(void* value) { delete static_cast<Tls*>(value); }
 int necko_tls_pending(void* value) {
   if (!value) return -1;
   auto* tls = static_cast<Tls*>(value); Active active(tls);
+  // Firefox's folded libnss3.dylib keeps SSL_DataPending as a local symbol.
+#if !defined(__APPLE__)
   const auto buffered = SSL_DataPending(tls->fd);
   if (buffered > 0 || !tls->write_some) return buffered;
+#endif
+  if (!tls->write_some) return 0;
   // The upstream H2 pump asks whether socket data can become application data,
   // including records not yet pulled into NSS. SSL_DataPending alone cannot
   // observe a newly readable TCP socket and would stall every H2 response.
   uint8_t byte;
   const auto n = PR_Recv(tls->fd, &byte, 1, PR_MSG_PEEK, PR_INTERVAL_NO_WAIT);
-  if (n > 0) return std::max(1, SSL_DataPending(tls->fd));
+  if (n > 0) {
+#if defined(__APPLE__)
+    return 1;
+#else
+    return std::max(1, SSL_DataPending(tls->fd));
+#endif
+  }
   if (n < 0 && PR_GetError() == PR_WOULD_BLOCK_ERROR) return 0;
   if (n < 0) TlsStatus(n);
   return -1;
