@@ -24,7 +24,7 @@ bool Configure(Tls* t, const Profile& p, const char* host, const char* peer, boo
     {SSL_ENABLE_SESSION_TICKETS, PR_TRUE}, {SSL_ENABLE_EXTENDED_MASTER_SECRET, PR_TRUE},
     {SSL_ENABLE_OCSP_STAPLING, PR_TRUE}, {SSL_ENABLE_SIGNED_CERT_TIMESTAMPS, p.signed_cert_timestamps},
     {SSL_ENABLE_ALPN, PR_TRUE}, {SSL_ENABLE_TLS13_COMPAT_MODE, PR_TRUE},
-    {SSL_ENABLE_DELEGATED_CREDENTIALS, PR_TRUE}, {SSL_ENABLE_POST_HANDSHAKE_AUTH, PR_TRUE},
+    {SSL_ENABLE_DELEGATED_CREDENTIALS, PR_TRUE}, {SSL_ENABLE_POST_HANDSHAKE_AUTH, PR_FALSE},
     {SSL_ENABLE_RENEGOTIATION, SSL_RENEGOTIATE_REQUIRES_XTN}};
   for (auto [option, value] : options) if (SSL_OptionSet(fd, option, value) != SECSuccess) return false;
   for (unsigned i = 0; i < SSL_NumImplementedCiphers; ++i)
@@ -51,7 +51,9 @@ bool Configure(Tls* t, const Profile& p, const char* host, const char* peer, boo
     auto algorithm = algorithms[id - 1];
     if (SSL_SetCertificateCompressionAlgorithm(fd, algorithm) != SECSuccess) return false;
   }
-  const auto* protocols = reinterpret_cast<const uint8_t*>(h2 ? "\2h2\10http/1.1" : "\10http/1.1");
+  // SSL_SetNextProtoNego moves the first protocol (NPN fallback) to the end of
+  // the wire ALPN list, so put http/1.1 first to emit ["h2", "http/1.1"].
+  const auto* protocols = reinterpret_cast<const uint8_t*>(h2 ? "\10http/1.1\2h2" : "\10http/1.1");
   return SSL_SetNextProtoNego(fd, protocols, h2 ? 12 : 9) == SECSuccess && SSL_ResetHandshake(fd, PR_FALSE) == SECSuccess;
 }
 }

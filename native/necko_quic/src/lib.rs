@@ -780,6 +780,9 @@ fn pump(session: &mut Session) -> Result<f64, String> {
 }
 
 fn command_new(body: &Value) -> Result<Value, String> {
+    if !NSS_OK.with(|slot| *slot.borrow()) && necko_quic_init() != 0 {
+        return Err("NSS initialization failed".to_string());
+    }
     let host = body.get("host").and_then(Value::as_str).unwrap_or("");
     if host.is_empty() {
         return Err("HTTP/3 new requires a host".to_string());

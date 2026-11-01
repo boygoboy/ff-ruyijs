@@ -511,16 +511,16 @@ static int take_status(necko_exchange *exchange) {
     memmove(exchange->pending, exchange->pending + at + 4, exchange->pending_len - (at + 4));
     exchange->pending_len -= at + 4;
     line_end = strstr(block, "\r\n");
-    if (line_end == NULL) {
-        free(block);
-        return -NECKO_FRAMING;
+    if (line_end != NULL) {
+        *line_end = '\0';
     }
-    *line_end = '\0';
     if (sscanf(block, "HTTP/%*s %d", &code) != 1) {
         free(block);
         return -NECKO_FRAMING;
     }
-    *line_end = '\r';
+    if (line_end != NULL) {
+        *line_end = '\r';
+    }
     if (code >= 100 && code < 200) {
         free(block);
         return 0;
