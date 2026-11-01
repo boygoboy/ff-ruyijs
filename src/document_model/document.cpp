@@ -1,3 +1,4 @@
+#include "runtime/cf_access_log.h"
 #include "document_model/state.h"
 #include "document_model/foreign_adoption.h"
 #include "document_model/collections.h"
@@ -31,8 +32,8 @@ static const char* FieldName(Field field) {
     case ContentType: return "contentType";
     case Encoding: return "characterSet";
     case Active: return "activeElement";
-    case Hidden: return "hidden";
-    case Visibility: return "visibilityState";
+    case Hidden: { cf_log::access("document", "hidden"); return "hidden"; }
+    case Visibility: { cf_log::access("document", "visibilityState"); return "visibilityState"; }
     case Script: return "currentScript";
     case Title: return "title";
     case Doctype: return "doctype";

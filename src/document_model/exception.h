@@ -6,8 +6,11 @@ namespace ruyijs::document_model {
 // Read only native DOMException storage. Never evaluates a property or proxy trap.
 bool ExceptionFields(JS::HandleObject, JS::MutableHandleString, JS::MutableHandleString);
 // The sole realm-local installer. It needs no document tree or Window state.
+// `window_exposed` selects the [Exposed=Window] members: a Worker prototype
+// carries result/filename/lineNumber/columnNumber/stack and no data.
 bool InstallExceptionSurface(JSContext*, JS::HandleObject global,
-                              JS::MutableHandleObject prototype, JS::MutableHandleObject constructor);
+                              JS::MutableHandleObject prototype, JS::MutableHandleObject constructor,
+                              bool window_exposed = true);
 // Native clients keep the installed prototype, never consult a public constructor.
 bool ThrowException(JSContext*, JS::HandleObject prototype, const char* name, const char* message);
 // A DOMException subclass instance (RTCError, docs/owners/WEB_RTC.md): the same

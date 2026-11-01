@@ -1,3 +1,4 @@
+#ifdef _WIN32
 // Canvas text measurement for the font owner. A 2D context reports other numbers
 // than SVG or layout text: the advance as a float of whole app units, the tight
 // unrounded ink box of the glyphs, and the rounded font box of the primary font.
@@ -119,3 +120,5 @@ bool SystemFonts::MeasureCanvas(const std::u16string& text, const FontInput& inp
   return true;
 }
 }  // namespace ruyijs::web_geometry
+
+#endif  // _WIN32

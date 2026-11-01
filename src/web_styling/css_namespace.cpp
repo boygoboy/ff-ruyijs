@@ -6,6 +6,7 @@
 #include "js/Realm.h"
 #include "runtime/page_helpers.h"
 #include "web_styling/highlight.h"
+#include "runtime/cf_access_log.h"
 #include "web_styling/internal.h"
 
 namespace ruyijs::web_styling {
@@ -37,6 +38,7 @@ bool Supports(JSContext* cx, unsigned argc, JS::Value* vp) {
     args.rval().setBoolean(ruyijs::domain::styling::CssSupportsCondition(condition));
     return true;
   }
+  cf_log::access("css.supports", property + ": " + value);
   args.rval().setBoolean(ruyijs::domain::styling::CssSupportsProperty(property,value));
   return true;
 }

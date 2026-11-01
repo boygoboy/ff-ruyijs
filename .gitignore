@@ -14,7 +14,9 @@
 /out-share-*.zip
 /out-share-*.zip.sha256
 /artifacts/
-/tests/
+# Keep local test files out, admit the one runtime-integration suite.
+/tests/*
+!/tests/test_macos_runtime.py
 # Only the native build and wheel tools are public; audit/probe tools stay local.
 /tools/*
 !/tools/README.md
@@ -39,6 +41,8 @@
 !/tools/image_native.py
 !/tools/native.py
 !/tools/product_sources.py
+!/tools/signal_parity.py
+!/tools/shaping_parity.py
 !/tools/provenance.py
 !/tools/sanitizer_data.py
 !/tools/skia_native.py

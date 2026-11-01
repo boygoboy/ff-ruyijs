@@ -46,6 +46,72 @@ bool Box(const std::string& value,bool negative,bool automatic,bool many) {
       !CssNumericAllowed(part,CssLength|CssPercent,negative)) return false;
   return true;
 }
+std::vector<std::string> Words(const std::string& value) {
+  std::vector<std::string> words;
+  for(size_t p=0;p<value.size();) {
+    p=CssSkip(value,p);if(p==value.size()) break;auto end=p;
+    while(end<value.size()&&!CssSpace(value[end])) ++end;
+    words.push_back(value.substr(p,end-p));p=end;
+  }
+  return words;
+}
+bool DistinctWords(const std::string& value,const char* list,size_t most) {
+  auto words=Words(value);
+  if(words.empty()||words.size()>most) return false;
+  for(size_t i=0;i<words.size();++i) {
+    bool hit=false;
+    for(const auto& word:CssSplit(list,',')) if(CssLower(words[i])==word) {hit=true;break;}
+    if(!hit) return false;
+    for(size_t j=0;j<i;++j) if(CssLower(words[j])==CssLower(words[i])) return false;
+  }
+  return true;
+}
+bool Function(const std::string& value,const char* names) {
+  auto open=value.find('(');
+  if(open==value.npos||value.back()!=')') return false;
+  auto name=CssLower(CssTrim(std::string_view(value).substr(0,open)));
+  for(const auto& word:CssSplit(names,',')) if(name==word) return true;
+  return false;
+}
+bool Filter(const std::string& value) {
+  for(size_t p=0;p<value.size();) {
+    p=CssSkip(value,p);if(p==value.size()) break;
+    auto end=p;while(end<value.size()&&value[end]!=',') ++end;
+    auto part=CssTrim(std::string_view(value).substr(p,end-p));p=end;
+    if(p<value.size()) ++p;
+    if(!Function(std::string(part),"blur,brightness,contrast,grayscale,invert,opacity,saturate,sepia,drop-shadow,hue-rotate")) return false;
+  }
+  return true;
+}
+bool Image(const std::string& value) {
+  for(size_t p=0;p<value.size();) {
+    p=CssSkip(value,p);if(p==value.size()) break;
+    auto end=p;
+    while(end<value.size()&&value[end]!=',') {
+      if(value[end]=='(') {auto close=CssClosing(value,end);if(close==value.size()) return false;end=close+1;}
+      else ++end;
+    }
+    auto part=CssTrim(std::string_view(value).substr(p,end-p));p=end;
+    if(p<value.size()) ++p;
+    if(!Function(std::string(part),"url,linear-gradient,radial-gradient,repeating-linear-gradient,repeating-radial-gradient,conic-gradient,repeating-conic-gradient,image-set,image,cross-fade,paint")) return false;
+  }
+  return true;
+}
+bool BasicShape(const std::string& value) {
+  auto words=Words(value);
+  if(words.empty()) return false;
+  auto first=CssLower(words.front());
+  if(Function(std::string(first),"inset,circle,ellipse,polygon,path,xywh,rect")) return true;
+  return Function(words.front(),"inset,circle,ellipse,polygon,path,xywh,rect")&&words.size()<=2;
+}
+bool Ratio(const std::string& value) {
+  auto slash=value.find('/');
+  if(slash==value.npos) return CssNumericAllowed(value,CssNumber,false);
+  auto left=CssTrim(std::string_view(value).substr(0,slash));
+  auto right=CssTrim(std::string_view(value).substr(slash+1));
+  return CssNumericAllowed(std::string(left),CssNumber,false)&&
+         CssNumericAllowed(std::string(right),CssNumber,false);
+}
 }
 bool CssSupportsProperty(const std::string& property,const std::string& input) {
   const auto name=CssLower(property),value=CssClean(input),lower=CssLower(value);
@@ -64,6 +130,39 @@ bool CssSupportsProperty(const std::string& property,const std::string& input) {
   if(lower.find("var(")!=lower.npos||lower.find("env(")!=lower.npos) return CssVariableReferenceValid(lower);
   if(name=="display") return Display(lower);
   if(name=="box-sizing") return Keyword(lower,"content-box,border-box");
+  if(name=="content-visibility") return Keyword(lower,"visible,auto,hidden");
+  if(name=="shape-outside") return lower=="none"||BasicShape(lower);
+  if(name=="background-blend-mode") return Keyword(lower,"normal,multiply,screen,overlay,darken,lighten,color-dodge,color-burn,hard-light,soft-light,difference,exclusion,hue,saturation,color,luminosity")||DistinctWords(lower,"normal,multiply,screen,overlay,darken,lighten,color-dodge,color-burn,hard-light,soft-light,difference,exclusion,hue,saturation,color,luminosity",6);
+  if(name=="text-wrap") return Keyword(lower,"wrap,nowrap,balance,stable");
+  if(name=="overflow-wrap"||name=="word-break") return Keyword(lower,"normal,break-word,anywhere,keep-all");
+  if(name=="user-select") return Keyword(lower,"auto,text,none,contain,all");
+  if(name=="touch-action") return Keyword(lower,"auto,none,manipulation")||DistinctWords(lower,"pan-x,pan-y,pinch-zoom",2);
+  if(name=="isolation") return Keyword(lower,"auto,isolate");
+  if(name=="mix-blend-mode") return Keyword(lower,"normal,multiply,screen,overlay,darken,lighten,color-dodge,color-burn,hard-light,soft-light,difference,exclusion,hue,saturation,color,luminosity,plus-lighter,plus-darker");
+  if(name=="filter"||name=="backdrop-filter") return lower=="none"||Filter(lower);
+  if(name=="mask-image") return lower=="none"||Image(lower);
+  if(name=="clip-path") return lower=="none"||BasicShape(lower);
+  if(name=="paint-order") return lower=="normal"||DistinctWords(lower,"fill,stroke,markers",3);
+  if(name=="will-change") return lower=="auto"||DistinctWords(lower,"scroll-position,contents",2)||[&]{auto words=Words(lower);if(words.empty()) return false;for(auto& word:words) if(!Identifier(word)) return false;return true;}();
+  if(name=="contain") return Keyword(lower,"none,strict,content")||DistinctWords(lower,"size,inline-size,layout,style,paint",4);
+  if(name=="aspect-ratio") return lower=="auto"||Ratio(lower)||([&]{auto words=Words(lower);return words.size()==2&&words[0]=="auto"&&Ratio(words[1]);}());
+  if(name=="scale") return lower=="none"||[&]{auto words=Words(lower);if(words.empty()||words.size()>3) return false;for(auto& word:words) if(!CssNumericAllowed(word,CssNumber,false)) return false;return true;}();
+  if(name=="rotate") return lower=="none"||[&]{auto words=Words(lower);if(words.empty()||words.size()>2) return false;if(words.size()==2&&!Keyword(CssLower(words[0]),"x,y,z")) return false;auto angle=words.size()==2?words[1]:words[0];return CssNumericAllowed(angle,CssNumber|CssAngle,false);}();
+  if(name=="translate") return lower=="none"||[&]{auto words=Words(lower);if(words.empty()||words.size()>3) return false;for(auto& word:words) if(!CssNumericAllowed(word,CssLength|CssPercent,false)) return false;return true;}();
+  if(name=="accent-color") return lower=="auto"||CssColorSupported(lower);
+  if(name=="color-scheme") return lower=="normal"||DistinctWords(lower,"light,dark,only",3)||[&]{auto words=Words(lower);if(words.empty()||words.size()>3) return false;for(auto& word:words) if(!Identifier(word)) return false;return true;}();
+  if(name=="scrollbar-gutter") return Keyword(lower,"auto,stable,stable both-edges");
+  if(name=="scrollbar-width") return Keyword(lower,"auto,thin,none");
+  if(name=="overscroll-behavior"||name=="overscroll-behavior-x"||name=="overscroll-behavior-y") return Keyword(lower,"auto,contain,none")||DistinctWords(lower,"auto,contain,none",2);
+  if(name=="hyphens") return Keyword(lower,"none,manual,auto");
+  if(name=="image-rendering") return Keyword(lower,"auto,smooth,high-quality,pixelated,crisp-edges");
+  if(name=="text-underline-offset") return lower=="auto"||CssNumericAllowed(lower,CssLength,false);
+  if(name=="text-decoration-thickness") return lower=="auto"||lower=="from-font"||CssNumericAllowed(lower,CssLength|CssPercent,false);
+  if(name=="font-variant-numeric") return Keyword(lower,"normal,lining-nums,oldstyle-nums,proportional-nums,tabular-nums,diagonal-fractions,stacked-fractions,ordinal,slash-zero")||DistinctWords(lower,"lining-nums,oldstyle-nums,proportional-nums,tabular-nums,diagonal-fractions,stacked-fractions,ordinal,slash-zero",3);
+  if(name=="field-sizing") return Keyword(lower,"content,fixed");
+  if(name=="container-type") return Keyword(lower,"normal,size,inline-size");
+  if(name=="place-items") {auto words=Words(lower);if(words.empty()||words.size()>2) return false;for(auto& word:words) if(!Keyword(CssLower(word),"normal,stretch,center,start,end,flex-start,flex-end,self-start,self-end,baseline,first baseline,last baseline,safe center,unsafe center,legacy left,legacy right,unsafe legacy left,unsafe legacy right")) return false;return true;}
+  if(name=="forced-color-adjust") return Keyword(lower,"auto,none,preserve-parent-color");
   if(name=="color"||name.find("color")!=name.npos) return CssColorSupported(lower);
   if(name=="line-height") return lower=="normal"||CssNumericAllowed(lower,CssNumber|CssLength|CssPercent,false);
   if(name=="width"||name=="height"||name.find("-width")!=name.npos||name.find("-height")!=name.npos) {
@@ -113,6 +212,9 @@ bool CssSupportsProperty(const std::string& property,const std::string& input) {
   if(name.find("-style")!=name.npos) return Keyword(lower,"none,hidden,dotted,dashed,solid,double,groove,ridge,inset,outset");
   if(name=="background-image") return lower=="none";
   if(name=="cursor") return Keyword(lower,"auto,default,none,context-menu,help,pointer,progress,wait,cell,crosshair,text,vertical-text,alias,copy,move,no-drop,not-allowed,grab,grabbing,all-scroll,col-resize,row-resize,n-resize,e-resize,s-resize,w-resize,ne-resize,nw-resize,se-resize,sw-resize,ew-resize,ns-resize,nesw-resize,nwse-resize,zoom-in,zoom-out");
+  // Modern property grammars (the surface Firefox 159 answers CSS.supports
+  // with; text-wrap:pretty, line-clamp and interpolate-size are not shipped
+  // there and stay unsupported here as well).
   // Other property grammars are pending; arbitrary tokens do not imply support.
   return false;
 }

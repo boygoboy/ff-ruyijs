@@ -14,5 +14,12 @@ bool CreateException(JSContext*, JS::HandleObject prototype, std::u16string_view
                       std::u16string_view name, JS::MutableHandleValue, const JS::CallArgs* = nullptr);
 bool ExceptionConstructor(JSContext*, unsigned, JS::Value*);
 bool ExceptionGetter(JSContext*, unsigned, JS::Value*);
+bool ExceptionFilenameGetter(JSContext*, unsigned, JS::Value*);
+bool ExceptionLineGetter(JSContext*, unsigned, JS::Value*);
+bool ExceptionColumnGetter(JSContext*, unsigned, JS::Value*);
+bool ExceptionStackGetter(JSContext*, unsigned, JS::Value*);
+bool ExceptionStackSetter(JSContext*, unsigned, JS::Value*);
+bool ExceptionResultGetter(JSContext*, unsigned, JS::Value*);
+bool ExceptionDataGetter(JSContext*, unsigned, JS::Value*);
 }
 #endif
